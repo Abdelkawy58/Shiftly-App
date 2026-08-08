@@ -2769,9 +2769,9 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace }) {
 // so this same deployed app can serve more than one team, each with its own
 // completely separate attendance data behind its own name + password. New
 // Dashboards need the builder's approval (via the hidden ?admin= screen)
-// before their name + password can be used to sign in. The chosen Dashboard
-// is remembered only for this browser tab session — closing and reopening
-// the app always asks again, on purpose.
+// before their name + password can be used to sign in. Once signed in, this
+// device stays signed in permanently (like a saved login) until someone
+// taps the logout button — closing/reopening the browser does NOT ask again.
 // ============================================================================
 
 function normalizeWorkspaceName(raw) {
@@ -3121,9 +3121,8 @@ export default function App() {
       setPhase("admin");
       return;
     }
-    // Deliberately session-only: closing and reopening the browser always
-    // asks for the Dashboard name + password again.
-    const saved = window.sessionStorage.getItem("workspace-name");
+    // Permanent per-device sign-in: only cleared by the logout button.
+    const saved = window.localStorage.getItem("workspace-name");
     if (saved) {
       (async () => {
         const reg = await loadRegistry();
@@ -3133,7 +3132,7 @@ export default function App() {
           setDisplayName(entry.displayName || saved);
           setPhase("ready");
         } else if (entry?.status === "approved" && entry.locked) {
-          window.sessionStorage.removeItem("workspace-name");
+          window.localStorage.removeItem("workspace-name");
           setError("This Dashboard is locked. Contact your administrator.");
           setPhase("gate");
         } else if (entry?.status === "pending") {
@@ -3141,7 +3140,7 @@ export default function App() {
           setDisplayName(entry.displayName || saved);
           setPhase("pending");
         } else {
-          window.sessionStorage.removeItem("workspace-name");
+          window.localStorage.removeItem("workspace-name");
           setPhase("gate");
         }
       })();
@@ -3180,7 +3179,7 @@ export default function App() {
       setSubmitting(false);
       return;
     }
-    window.sessionStorage.setItem("workspace-name", norm);
+    window.localStorage.setItem("workspace-name", norm);
     setWorkspaceKey(norm);
     setDisplayName(entry.displayName || norm);
     setPhase(entry.status === "approved" ? "ready" : "pending");
@@ -3207,7 +3206,7 @@ export default function App() {
       setSubmitting(false);
       return;
     }
-    window.sessionStorage.setItem("workspace-name", norm);
+    window.localStorage.setItem("workspace-name", norm);
     setWorkspaceKey(norm);
     setDisplayName(name.trim());
     setPhase("pending");
@@ -3221,7 +3220,7 @@ export default function App() {
     if (entry?.status === "approved") {
       setPhase("ready");
     } else if (!entry) {
-      window.sessionStorage.removeItem("workspace-name");
+      window.localStorage.removeItem("workspace-name");
       setPhase("gate");
       setError("That request was declined. Try a different name.");
     }
@@ -3229,14 +3228,14 @@ export default function App() {
   };
 
   const handleUseDifferent = () => {
-    window.sessionStorage.removeItem("workspace-name");
+    window.localStorage.removeItem("workspace-name");
     resetGateFields();
     setMode("enter");
     setPhase("gate");
   };
 
   const handleSwitchWorkspace = () => {
-    window.sessionStorage.removeItem("workspace-name");
+    window.localStorage.removeItem("workspace-name");
     setWorkspaceKey("");
     resetGateFields();
     setMode("enter");
