@@ -439,6 +439,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace }) {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [auth, setAuth] = useState(DEFAULT_AUTH);
   const [audit, setAudit] = useState([]);
+  const [presence, setPresence] = useState({}); // { [name]: { lastConfirmedAt, lastMissedAt, missedToday, missedDate } }
 
   const [tab, setTab] = useState("track");
   const [trackView, setTrackView] = useState("shift"); // 'shift' | 'overtime'
@@ -533,6 +534,8 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace }) {
   }, []);
   const graceRef = useRef({ shiftDate: null, lastPingIndex: -1, snoozedAt: null, autoFinished: false });
   const otGraceRef = useRef({ blockId: null, lastPingIndex: -1, snoozedAt: null, autoFinished: false });
+  const presenceRef = useRef({ shiftDate: null, nextCheckAt: null, promptShownAt: null });
+  const [showPresenceCheck, setShowPresenceCheck] = useState(false);
   const [showReachedPrompt, setShowReachedPrompt] = useState(false);
   const [showOtReachedPrompt, setShowOtReachedPrompt] = useState(false);
 
@@ -562,6 +565,10 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace }) {
     try {
       const auditRes = await window.storage.get(wsKey("attendance-audit"), true).catch(() => null);
       setAudit(auditRes?.value ? JSON.parse(auditRes.value) : []);
+    } catch (e) {}
+    try {
+      const presenceRes = await window.storage.get(wsKey("attendance-presence"), true).catch(() => null);
+      setPresence(presenceRes?.value ? JSON.parse(presenceRes.value) : {});
     } catch (e) {}
   }, [wsKey]);
 
@@ -986,6 +993,76 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace }) {
     }
   }, [status, now, myShiftStart, myShiftDate, standardMs, settings.graceMinutes, autoFinishMyShift]);
 
+  // "Still there?" presence check — a quiet, non-blocking way for the owner to know someone is genuinely
+  // around during their shift, without needing them to keep the Track tab focused. Fires at a random time
+  // roughly every 90-150 min while status is "working" (not during a break — that already implies presence).
+  // If ignored for 10 minutes it just logs as "missed" and reschedules; it never pauses or blocks the shift.
+  const savePresence = useCallback(
+    async (updated) => {
+      try {
+        const res = await window.storage.set(wsKey("attendance-presence"), JSON.stringify(updated), true);
+        if (res) setPresence(updated);
+      } catch (e) {}
+    },
+    [wsKey]
+  );
+
+  const scheduleNextPresenceCheck = () => {
+    const minMs = 90 * 60000;
+    const maxMs = 150 * 60000;
+    presenceRef.current.nextCheckAt = now + minMs + Math.random() * (maxMs - minMs);
+    presenceRef.current.promptShownAt = null;
+  };
+
+  const confirmPresence = () => {
+    setShowPresenceCheck(false);
+    presenceRef.current.promptShownAt = null;
+    scheduleNextPresenceCheck();
+    if (myUser) {
+      const prior = presence[myUser] || {};
+      const updated = { ...presence, [myUser]: { ...prior, lastConfirmedAt: now } };
+      savePresence(updated);
+    }
+  };
+
+  useEffect(() => {
+    if (status !== "working" || !myShiftStart) {
+      presenceRef.current = { shiftDate: null, nextCheckAt: null, promptShownAt: null };
+      setShowPresenceCheck(false);
+      return;
+    }
+    if (presenceRef.current.shiftDate !== myShiftDate) {
+      presenceRef.current.shiftDate = myShiftDate;
+      scheduleNextPresenceCheck();
+    }
+    if (!presenceRef.current.nextCheckAt) return;
+
+    // Time to show a check
+    if (!showPresenceCheck && !presenceRef.current.promptShownAt && now >= presenceRef.current.nextCheckAt) {
+      presenceRef.current.promptShownAt = now;
+      setShowPresenceCheck(true);
+      try {
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+          new Notification("Shiftly", { body: "Quick check — still working?", silent: true });
+        }
+      } catch (e) {}
+    }
+
+    // Timed out with no response — log as missed, reschedule, no interruption to the shift itself
+    if (showPresenceCheck && presenceRef.current.promptShownAt && now - presenceRef.current.promptShownAt >= 10 * 60000) {
+      setShowPresenceCheck(false);
+      presenceRef.current.promptShownAt = null;
+      scheduleNextPresenceCheck();
+      if (myUser) {
+        const todayStr = todayKey();
+        const prior = presence[myUser] || {};
+        const missedToday = prior.missedDate === todayStr ? (prior.missedToday || 0) + 1 : 1;
+        const updated = { ...presence, [myUser]: { ...prior, lastMissedAt: now, missedToday, missedDate: todayStr } };
+        savePresence(updated);
+      }
+    }
+  }, [status, now, myShiftStart, myShiftDate, showPresenceCheck, myUser, presence, savePresence]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Same safety net as the regular shift, but for overtime: once a session runs past otMaxHours, it pings
   // every 5 min and auto-closes itself after the grace window so a forgotten "Finish" can't quietly run for
   // hours or days. Auto-closed sessions still go through the normal approval flow like any other.
@@ -1297,6 +1374,16 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace }) {
           </div>
         </div>
       )}
+      {showPresenceCheck && (
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50">
+          <div className="flex items-center gap-3 bg-neutral-900 border border-neutral-700 text-neutral-100 text-sm font-medium pl-4 pr-2 py-2 rounded-full shadow-lg">
+            <span>Still there? 👋</span>
+            <button onClick={confirmPresence} className="bg-neutral-100 text-neutral-900 text-xs font-semibold px-3 py-1.5 rounded-full">
+              Yes, I'm here
+            </button>
+          </div>
+        </div>
+      )}
       <div className="px-4 sm:px-5 pt-5 pb-4 border-b border-neutral-800 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <div className="w-9 h-9 shrink-0 rounded-xl bg-neutral-900 border border-emerald-500/30 flex items-center justify-center">
@@ -1535,6 +1622,13 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace }) {
                               setEarlyFinishReason("");
                               setShowEarlyFinishConfirm(true);
                               return;
+                            }
+                            if (b.type === "start") {
+                              try {
+                                if (typeof Notification !== "undefined" && Notification.permission === "default") {
+                                  Notification.requestPermission().catch(() => {});
+                                }
+                              } catch (e) {}
                             }
                             playClickSound(b.type);
                             addEvent(b.type);
@@ -1935,6 +2029,15 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace }) {
                   {activeUsersProgress.map((p) => {
                     const pct = Math.min(100, (p.liveElapsedMs / standardMs) * 100);
                     const ac = avatarColor(p.name);
+                    const pr = presence[p.name];
+                    const confirmedAt = pr?.lastConfirmedAt || 0;
+                    const missedAt = pr?.lastMissedAt || 0;
+                    const presenceNote =
+                      missedAt > confirmedAt
+                        ? { text: `Missed last check (${fmtDuration(now - missedAt)} ago)`, cls: "text-amber-500" }
+                        : confirmedAt
+                        ? { text: `Last check-in: ${fmtDuration(now - confirmedAt)} ago`, cls: "text-neutral-600" }
+                        : null;
                     return (
                       <button key={p.name} onClick={() => goToPersonReport(p.name)} className="w-full text-left bg-neutral-900 border border-neutral-800 hover:border-neutral-700 rounded-xl p-3">
                         <div className="flex items-center justify-between mb-1.5">
@@ -1948,9 +2051,10 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace }) {
                           </div>
                           <span className="text-xs font-mono text-neutral-400 shrink-0">{fmtDuration(p.liveElapsedMs)}</span>
                         </div>
-                        <div className="w-full h-1.5 bg-neutral-950 rounded-full overflow-hidden">
+                        <div className="w-full h-1.5 bg-neutral-950 rounded-full overflow-hidden mb-1.5">
                           <div className={`h-full rounded-full transition-all ${p.status === "on_break" ? "bg-amber-500" : "bg-emerald-500"}`} style={{ width: `${pct}%` }} />
                         </div>
+                        {presenceNote && <p className={`text-[10px] ${presenceNote.cls}`}>{presenceNote.text}</p>}
                       </button>
                     );
                   })}
