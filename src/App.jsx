@@ -4,8 +4,18 @@ import {
   UserX, UserCheck, Download, Settings as SettingsIcon, Users as UsersIcon,
   BarChart3, Activity as ActivityIcon, CalendarRange, AlertTriangle,
   StickyNote, Tag, ShieldQuestion, Home, Info, X, Volume2, VolumeX, Zap, Timer, LogOut,
-  Building2, RefreshCw, Check,
+  Building2, RefreshCw, Check, LayoutGrid,
 } from "lucide-react";
+
+// Quick-pick statuses for the weekly schedule grid. "shift" isn't in this list — it's
+// whatever template or free-text label the owner picks/types (a time, an account name, etc).
+const SCHEDULE_STATUSES = {
+  off: { label: "OFF", bg: "bg-orange-500", text: "text-white" },
+  annual: { label: "Annual", bg: "bg-violet-900", text: "text-white" },
+  training: { label: "Training", bg: "bg-blue-700", text: "text-white" },
+  holiday: { label: "Holiday", bg: "bg-yellow-400", text: "text-neutral-900" },
+};
+const DEFAULT_ANNUAL_LEAVE_BALANCE = 21;
 
 const OWNER_PASSWORD_FALLBACK = "owner2026"; // used only until the owner sets a custom password in Settings
 const VIEWER_PASSWORD_FALLBACK = "viewer2026"; // used only until the owner sets a custom viewer password in Settings
@@ -31,6 +41,118 @@ function fmtDateLabel(dateStr) {
   const d = new Date(dateStr + "T12:00:00");
   return d.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
 }
+// Minimal CSV parser (handles quoted fields with commas inside) — good enough for a
+// simple internal roster import, not meant to be a full RFC-4180 implementation.
+function parseSimpleCSV(text) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else field += c;
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === ",") { row.push(field); field = ""; }
+      else if (c === "\n" || c === "\r") {
+        if (c === "\r" && text[i + 1] === "\n") i++;
+        row.push(field);
+        rows.push(row);
+        row = [];
+        field = "";
+      } else field += c;
+    }
+  }
+  if (field !== "" || row.length) { row.push(field); rows.push(row); }
+  return rows.filter((r) => r.some((c) => c.trim() !== ""));
+}
+// "8/9/2026" -> "2026-08-09"
+function parseUSDateToKey(s) {
+  const m = s.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return null;
+  const [, mo, da, yr] = m;
+  return `${yr}-${String(mo).padStart(2, "0")}-${String(da).padStart(2, "0")}`;
+}
+
+// "14:30" -> "2:30 PM"
+function fmtTime12(hhmm) {
+  const [h, m] = hhmm.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, "0")} ${period}`;
+}
+
+// A true "pick, don't type" time selector: tap the button, choose hour/minute/AM-PM from
+// dropdown lists (never a free-text field), tap OK. Calls onConfirm with "HH:MM" (24h).
+function TimePickerButton({ value, onConfirm, label = "Pick a time", direction = "down" }) {
+  const [open, setOpen] = useState(false);
+  const [hour12, setHour12] = useState(9);
+  const [minute, setMinute] = useState(0);
+  const [period, setPeriod] = useState("AM");
+
+  const openPicker = () => {
+    if (value) {
+      const [h, m] = value.split(":").map(Number);
+      setHour12(h % 12 === 0 ? 12 : h % 12);
+      setMinute(m);
+      setPeriod(h >= 12 ? "PM" : "AM");
+    }
+    setOpen(true);
+  };
+
+  const confirm = () => {
+    let h24 = hour12 % 12;
+    if (period === "PM") h24 += 12;
+    const hhmm = `${String(h24).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+    onConfirm(hhmm);
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={openPicker}
+        className="flex items-center gap-1.5 bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 outline-none hover:border-neutral-500"
+      >
+        <Clock size={13} className="text-neutral-500" />
+        {value ? fmtTime12(value) : label}
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className={`absolute z-50 left-0 bg-neutral-900 border border-neutral-700 rounded-xl p-3 shadow-xl w-56 ${direction === "up" ? "bottom-full mb-1.5" : "top-full mt-1.5"}`}>
+            <div className="flex items-center gap-1.5 mb-3">
+              <select value={hour12} onChange={(e) => setHour12(Number(e.target.value))} className="flex-1 bg-neutral-950 border border-neutral-700 rounded-lg px-2 py-1.5 text-sm text-neutral-100 outline-none">
+                {Array.from({ length: 12 }, (_, i) => i + 1).map((h) => (
+                  <option key={h} value={h}>{h}</option>
+                ))}
+              </select>
+              <span className="text-neutral-500">:</span>
+              <select value={minute} onChange={(e) => setMinute(Number(e.target.value))} className="flex-1 bg-neutral-950 border border-neutral-700 rounded-lg px-2 py-1.5 text-sm text-neutral-100 outline-none">
+                {[0, 15, 30, 45].map((m) => (
+                  <option key={m} value={m}>{String(m).padStart(2, "0")}</option>
+                ))}
+              </select>
+              <div className="flex bg-neutral-950 border border-neutral-700 rounded-lg p-0.5">
+                <button type="button" onClick={() => setPeriod("AM")} className={`px-2 py-1 text-xs font-medium rounded-md ${period === "AM" ? "bg-neutral-800 text-neutral-50" : "text-neutral-500"}`}>AM</button>
+                <button type="button" onClick={() => setPeriod("PM")} className={`px-2 py-1 text-xs font-medium rounded-md ${period === "PM" ? "bg-neutral-800 text-neutral-50" : "text-neutral-500"}`}>PM</button>
+              </div>
+            </div>
+            <button type="button" onClick={confirm} className="w-full bg-neutral-100 text-neutral-900 text-xs font-semibold py-1.5 rounded-lg">
+              OK
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function fmtDateShort(dateStr) {
   const d = new Date(dateStr + "T12:00:00");
   return d.toLocaleDateString("en-US", { weekday: "short", day: "numeric" });
@@ -57,6 +179,21 @@ function weekDates(refDate = new Date()) {
   }
   return dates;
 }
+// Sunday-start week — used only by the Schedule tab, matching this team's actual roster
+// (Sun → Sat). Everywhere else (Summary, reports) keeps the Monday-start week.
+function weekDatesSat(refDate = new Date()) {
+  const d = new Date(refDate);
+  const day = d.getDay(); // JS: Sunday = 0 already
+  d.setDate(d.getDate() - day);
+  const dates = [];
+  for (let i = 0; i < 7; i++) {
+    const dd = new Date(d);
+    dd.setDate(d.getDate() + i);
+    dates.push(todayKey(dd));
+  }
+  return dates;
+}
+
 function monthDates(refDate = new Date()) {
   const year = refDate.getFullYear();
   const month = refDate.getMonth();
@@ -440,6 +577,27 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace }) {
   const [auth, setAuth] = useState(DEFAULT_AUTH);
   const [audit, setAudit] = useState([]);
   const [presence, setPresence] = useState({}); // { [name]: { lastConfirmedAt, lastMissedAt, missedToday, missedDate } }
+  const [schedule, setSchedule] = useState({}); // { "name|dateStr": { kind: "status"|"shift", status?: "off"|"annual"|"training"|"holiday", label?: "8:00 AM" } } — the owner's working draft
+  const [publishedSchedule, setPublishedSchedule] = useState(null); // what employees actually see — only updates when the owner hits "Publish" in Settings
+  const [publishMsg, setPublishMsg] = useState("");
+  const [confirmDeleteSchedule, setConfirmDeleteSchedule] = useState(false);
+  const [scheduleWeekOffset, setScheduleWeekOffset] = useState(0);
+  const [editingCell, setEditingCell] = useState(null); // "name|dateStr" or null
+  const [cellTimeInput, setCellTimeInput] = useState("");
+  const [cellSuffixInput, setCellSuffixInput] = useState("");
+  const [dailyTasks, setDailyTasks] = useState([]); // [{ id, name, text, assignedAt, status: "pending"|"done", doneAt }] — one-off, assigned to a specific person
+  const [recurringTasks, setRecurringTasks] = useState([]); // [{ id, time: "HH:MM" (24h), text, createdAt }] — auto-applies to whoever's shift starts at that time
+  const [recurringCompletions, setRecurringCompletions] = useState([]); // [{ id, taskId, name, date, doneAt }]
+  const [newRecurringTime, setNewRecurringTime] = useState("");
+  const [newRecurringText, setNewRecurringText] = useState("");
+  const [newTaskUser, setNewTaskUser] = useState("");
+  const [newTaskText, setNewTaskText] = useState("");
+  const [swapRequests, setSwapRequests] = useState([]); // [{ id, fromName, toName, date, status, requestedAt }]
+  const [swapTargetName, setSwapTargetName] = useState("");
+  const [myScheduleWeekOffset, setMyScheduleWeekOffset] = useState(0);
+  const [swapForCell, setSwapForCell] = useState(null); // "name|dateStr" or null
+  const [importMsg, setImportMsg] = useState("");
+  const csvFileInputRef = useRef(null);
 
   const [tab, setTab] = useState("track");
   const [trackView, setTrackView] = useState("shift"); // 'shift' | 'overtime'
@@ -484,6 +642,8 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace }) {
   const [noteEditValue, setNoteEditValue] = useState("");
   const [editingTeamFor, setEditingTeamFor] = useState("");
   const [teamEditValue, setTeamEditValue] = useState("");
+  const [editingLeaveFor, setEditingLeaveFor] = useState("");
+  const [leaveEditValue, setLeaveEditValue] = useState("");
   const [confirmDeleteFor, setConfirmDeleteFor] = useState("");
   const [confirmPurgeFor, setConfirmPurgeFor] = useState("");
   const [teamFilter, setTeamFilter] = useState("all");
@@ -569,6 +729,30 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace }) {
     try {
       const presenceRes = await window.storage.get(wsKey("attendance-presence"), true).catch(() => null);
       setPresence(presenceRes?.value ? JSON.parse(presenceRes.value) : {});
+    } catch (e) {}
+    try {
+      const scheduleRes = await window.storage.get(wsKey("attendance-schedule"), true).catch(() => null);
+      setSchedule(scheduleRes?.value ? JSON.parse(scheduleRes.value) : {});
+    } catch (e) {}
+    try {
+      const publishedRes = await window.storage.get(wsKey("attendance-schedule-published"), true).catch(() => null);
+      setPublishedSchedule(publishedRes?.value ? JSON.parse(publishedRes.value) : {});
+    } catch (e) {}
+    try {
+      const tasksRes = await window.storage.get(wsKey("attendance-daily-tasks"), true).catch(() => null);
+      setDailyTasks(tasksRes?.value ? JSON.parse(tasksRes.value) : []);
+    } catch (e) {}
+    try {
+      const recTasksRes = await window.storage.get(wsKey("attendance-recurring-tasks"), true).catch(() => null);
+      setRecurringTasks(recTasksRes?.value ? JSON.parse(recTasksRes.value) : []);
+    } catch (e) {}
+    try {
+      const recCompRes = await window.storage.get(wsKey("attendance-recurring-completions"), true).catch(() => null);
+      setRecurringCompletions(recCompRes?.value ? JSON.parse(recCompRes.value) : []);
+    } catch (e) {}
+    try {
+      const swapRes = await window.storage.get(wsKey("attendance-swap-requests"), true).catch(() => null);
+      setSwapRequests(swapRes?.value ? JSON.parse(swapRes.value) : []);
     } catch (e) {}
   }, [wsKey]);
 
@@ -919,6 +1103,24 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace }) {
   const otCapMs = (settings.otCapHours || 5) * 3600000;
 
   const myRecord = users[myUser];
+
+  // Combined pending-task count for the Track nav badge: recurring tasks that match today's
+  // shift (and aren't completed yet today) + one-off tasks assigned directly to this person.
+  const myPendingTaskCount = useMemo(() => {
+    if (!myUser) return 0;
+    const today = todayKey();
+    const myShiftToday = schedule[`${myUser}|${today}`];
+    const shiftLabel = myShiftToday?.kind === "shift" ? myShiftToday.label : "";
+    const doneTodayIds = new Set(
+      recurringCompletions.filter((c) => c.name === myUser && c.date === today).map((c) => c.taskId)
+    );
+    const recurringPendingCount = shiftLabel
+      ? recurringTasks.filter((t) => shiftLabel.startsWith(fmtTime12(t.time)) && !doneTodayIds.has(t.id)).length
+      : 0;
+    const oneOffPendingCount = dailyTasks.filter((t) => t.name === myUser && t.status === "pending").length;
+    return recurringPendingCount + oneOffPendingCount;
+  }, [myUser, schedule, recurringTasks, recurringCompletions, dailyTasks]);
+
   const myPersonEvents = useMemo(() => events.filter((e) => e.name === myUser), [events, myUser]);
   const myLiveState = useMemo(() => computeRegularLiveState(myPersonEvents, breakLimitMs, standardMs, now), [myPersonEvents, breakLimitMs, standardMs, now]);
   const { status, breakLocked, openBreakStart, enriched, liveWorkedMs, liveElapsedMs, liveBreakMs, shiftDate: myShiftDate, shiftStart: myShiftStart } = myLiveState;
@@ -1006,6 +1208,223 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace }) {
     },
     [wsKey]
   );
+
+  const saveSchedule = useCallback(
+    async (updated) => {
+      try {
+        const res = await window.storage.set(wsKey("attendance-schedule"), JSON.stringify(updated), true);
+        if (res) setSchedule(updated);
+        return !!res;
+      } catch (e) {
+        return false;
+      }
+    },
+    [wsKey]
+  );
+
+  // Snapshots the current draft schedule into what employees actually see. Employees never
+  // see live edits — only whatever was showing the last time the owner hit Publish.
+  const publishSchedule = useCallback(async () => {
+    try {
+      const res = await window.storage.set(wsKey("attendance-schedule-published"), JSON.stringify(schedule), true);
+      if (res) {
+        setPublishedSchedule(schedule);
+        setPublishMsg("Published — your team can now see this schedule.");
+        setTimeout(() => setPublishMsg(""), 3000);
+        return true;
+      }
+    } catch (e) {}
+    setPublishMsg("Could not publish, try again.");
+    return false;
+  }, [wsKey, schedule]);
+
+  const unpublishSchedule = useCallback(async () => {
+    try {
+      const res = await window.storage.set(wsKey("attendance-schedule-published"), JSON.stringify({}), true);
+      if (res) {
+        setPublishedSchedule({});
+        setPublishMsg("Unpublished — your team won't see a schedule until you publish again.");
+        setTimeout(() => setPublishMsg(""), 3000);
+        return true;
+      }
+    } catch (e) {}
+    setPublishMsg("Could not unpublish, try again.");
+    return false;
+  }, [wsKey]);
+
+  const saveDailyTasks = useCallback(
+    async (updated) => {
+      try {
+        const res = await window.storage.set(wsKey("attendance-daily-tasks"), JSON.stringify(updated), true);
+        if (res) setDailyTasks(updated);
+        return !!res;
+      } catch (e) {
+        return false;
+      }
+    },
+    [wsKey]
+  );
+
+  const saveRecurringTasks = useCallback(
+    async (updated) => {
+      try {
+        const res = await window.storage.set(wsKey("attendance-recurring-tasks"), JSON.stringify(updated), true);
+        if (res) setRecurringTasks(updated);
+        return !!res;
+      } catch (e) {
+        return false;
+      }
+    },
+    [wsKey]
+  );
+
+  const saveRecurringCompletions = useCallback(
+    async (updated) => {
+      try {
+        const res = await window.storage.set(wsKey("attendance-recurring-completions"), JSON.stringify(updated), true);
+        if (res) setRecurringCompletions(updated);
+        return !!res;
+      } catch (e) {
+        return false;
+      }
+    },
+    [wsKey]
+  );
+
+  const saveSwapRequests = useCallback(
+    async (updated) => {
+      try {
+        const res = await window.storage.set(wsKey("attendance-swap-requests"), JSON.stringify(updated), true);
+        if (res) setSwapRequests(updated);
+        return !!res;
+      } catch (e) {
+        return false;
+      }
+    },
+    [wsKey]
+  );
+
+  // Applies a schedule-cell change AND keeps each person's annual leave balance in sync:
+  // assigning "Annual" deducts a day, removing/replacing a prior "Annual" entry gives it back.
+  const applyScheduleEntry = useCallback(
+    async (name, dateStr, entry) => {
+      const key = `${name}|${dateStr}`;
+      const prior = schedule[key];
+      const wasAnnual = prior?.kind === "status" && prior.status === "annual";
+      const willBeAnnual = entry?.kind === "status" && entry.status === "annual";
+
+      const updatedSchedule = { ...schedule };
+      if (entry === null) delete updatedSchedule[key];
+      else updatedSchedule[key] = entry;
+
+      let updatedUsers = users;
+      if (wasAnnual !== willBeAnnual && users[name]) {
+        const currentBalance = users[name].annualLeaveBalance ?? DEFAULT_ANNUAL_LEAVE_BALANCE;
+        const delta = willBeAnnual ? -1 : 1;
+        updatedUsers = { ...users, [name]: { ...users[name], annualLeaveBalance: currentBalance + delta } };
+      }
+
+      const ok = await saveSchedule(updatedSchedule);
+      if (ok && updatedUsers !== users) {
+        await saveUsers(updatedUsers, `Annual leave ${willBeAnnual ? "deducted for" : "restored to"} "${name}" (${fmtDateLabel(dateStr)})`);
+      }
+      return ok;
+    },
+    [schedule, users, saveSchedule, saveUsers]
+  );
+
+  // Imports a roster CSV: row 1 = ID, Agent Name, then one column per date (M/D/YYYY,
+  // e.g. "8/9/2026"); each data row after that = ID, Agent Name, then a value per date —
+  // OFF / Annual / Training / Holiday (case-insensitive), or free text for a shift label.
+  const handleImportScheduleCSV = async (file) => {
+    setImportMsg("Importing...");
+    try {
+      const text = await file.text();
+      const rows = parseSimpleCSV(text);
+      if (rows.length < 2) { setImportMsg("That file looks empty."); return; }
+      const header = rows[0];
+      const dateCols = header.slice(2).map((h) => parseUSDateToKey(h));
+      const updatedSchedule = { ...schedule };
+      const leaveDelta = {};
+      let matched = 0;
+      const unmatched = [];
+
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        const name = (row[1] || "").trim();
+        if (!name) continue;
+        if (!users[name]) { unmatched.push(name); continue; }
+        matched++;
+        for (let c = 0; c < dateCols.length; c++) {
+          const dateStr = dateCols[c];
+          if (!dateStr) continue;
+          const raw = (row[2 + c] || "").trim();
+          if (!raw) continue;
+          const key = `${name}|${dateStr}`;
+          const priorWasAnnual = updatedSchedule[key]?.kind === "status" && updatedSchedule[key].status === "annual";
+          const lower = raw.toLowerCase();
+          let entry;
+          if (SCHEDULE_STATUSES[lower]) entry = { kind: "status", status: lower };
+          else entry = { kind: "shift", label: raw };
+          const nowIsAnnual = entry.kind === "status" && entry.status === "annual";
+          if (nowIsAnnual && !priorWasAnnual) leaveDelta[name] = (leaveDelta[name] || 0) - 1;
+          if (!nowIsAnnual && priorWasAnnual) leaveDelta[name] = (leaveDelta[name] || 0) + 1;
+          updatedSchedule[key] = entry;
+        }
+      }
+
+      const ok = await saveSchedule(updatedSchedule);
+      if (ok && Object.keys(leaveDelta).length > 0) {
+        const updatedUsers = { ...users };
+        for (const [name, delta] of Object.entries(leaveDelta)) {
+          const cur = updatedUsers[name]?.annualLeaveBalance ?? DEFAULT_ANNUAL_LEAVE_BALANCE;
+          updatedUsers[name] = { ...updatedUsers[name], annualLeaveBalance: cur + delta };
+        }
+        await saveUsers(updatedUsers, "Annual leave balances adjusted from schedule CSV import");
+      }
+      setImportMsg(
+        ok
+          ? `Imported ${matched} agent(s).${unmatched.length ? ` Skipped (no matching user): ${[...new Set(unmatched)].join(", ")}.` : ""}`
+          : "Could not save the import, try again."
+      );
+    } catch (e) {
+      setImportMsg("Could not read that file.");
+    }
+  };
+
+  // Exports the currently viewed week as a CSV in the same shape handleImportScheduleCSV expects,
+  // so it round-trips: export, edit in Excel, re-import.
+  const handleExportScheduleCSV = () => {
+    const ref = new Date();
+    ref.setDate(ref.getDate() + scheduleWeekOffset * 7);
+    const dates = weekDatesSat(ref);
+    const names = Object.keys(users).sort((a, b) => a.localeCompare(b));
+    const header = ["ID", "Agent Name", ...dates.map((d) => {
+      const dd = new Date(d + "T12:00:00");
+      return `${dd.getMonth() + 1}/${dd.getDate()}/${dd.getFullYear()}`;
+    })];
+    const rows = [header];
+    names.forEach((name, i) => {
+      const row = [String(i + 1), name];
+      dates.forEach((d) => {
+        const entry = schedule[`${name}|${d}`];
+        if (!entry) row.push("");
+        else if (entry.kind === "status") row.push(SCHEDULE_STATUSES[entry.status]?.label || "");
+        else row.push(entry.label || "");
+      });
+      rows.push(row);
+    });
+    const csv = rows.map((r) => r.map((c) => (/[",\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c)).join(",")).join("\r\n");
+    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `schedule-${dates[0]}-to-${dates[6]}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   const scheduleNextPresenceCheck = () => {
     const minMs = 90 * 60000;
@@ -1432,7 +1851,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace }) {
 
       {/* TRACK TAB */}
       {tab === "track" && (
-        <div className="p-4 sm:p-5 max-w-md mx-auto">
+        <div className={`p-4 sm:p-5 mx-auto ${trackView === "schedule" ? "max-w-4xl" : "max-w-md"}`}>
           {!myUser ? (
             <div className="pt-4 pb-6">
               <div
@@ -1495,23 +1914,44 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace }) {
                 </div>
               </div>
 
-              <div className="flex bg-neutral-900 rounded-lg p-1 gap-1 mb-4">
-                <button
-                  onClick={() => !myOtLiveState.active && setTrackView("shift")}
-                  disabled={myOtLiveState.active}
-                  title={myOtLiveState.active ? "Finish your overtime session first" : ""}
-                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md ${trackView === "shift" ? "bg-neutral-800 text-neutral-50" : myOtLiveState.active ? "text-neutral-700 cursor-not-allowed" : "text-neutral-500"}`}
-                >
-                  <Clock size={13} /> Shift
-                </button>
-                <button
-                  onClick={() => canUseOvertime && setTrackView("overtime")}
-                  disabled={!canUseOvertime}
-                  title={!canUseOvertime ? "Finish your regular shift first" : ""}
-                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md ${trackView === "overtime" ? "bg-neutral-800 text-neutral-50" : canUseOvertime ? "text-neutral-500" : "text-neutral-700 cursor-not-allowed"}`}
-                >
-                  <Zap size={13} /> Overtime
-                </button>
+              <div className="space-y-1 mb-4">
+                <div className="flex bg-neutral-900 rounded-lg p-1 gap-1">
+                  <button
+                    onClick={() => !myOtLiveState.active && setTrackView("shift")}
+                    disabled={myOtLiveState.active}
+                    title={myOtLiveState.active ? "Finish your overtime session first" : ""}
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md ${trackView === "shift" ? "bg-neutral-800 text-neutral-50" : myOtLiveState.active ? "text-neutral-700 cursor-not-allowed" : "text-neutral-500"}`}
+                  >
+                    <Clock size={13} /> Shift
+                  </button>
+                  <button
+                    onClick={() => canUseOvertime && setTrackView("overtime")}
+                    disabled={!canUseOvertime}
+                    title={!canUseOvertime ? "Finish your regular shift first" : ""}
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md ${trackView === "overtime" ? "bg-neutral-800 text-neutral-50" : canUseOvertime ? "text-neutral-500" : "text-neutral-700 cursor-not-allowed"}`}
+                  >
+                    <Zap size={13} /> Overtime
+                  </button>
+                </div>
+                <div className="flex bg-neutral-900 rounded-lg p-1 gap-1">
+                  <button
+                    onClick={() => setTrackView("schedule")}
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md ${trackView === "schedule" ? "bg-neutral-800 text-neutral-50" : "text-neutral-500"}`}
+                  >
+                    <LayoutGrid size={13} /> Schedule
+                  </button>
+                  <button
+                    onClick={() => setTrackView("dailytask")}
+                    className={`relative flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md ${trackView === "dailytask" ? "bg-neutral-800 text-neutral-50" : "text-neutral-500"}`}
+                  >
+                    <StickyNote size={13} /> Daily Task
+                    {myPendingTaskCount > 0 && (
+                      <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 flex items-center justify-center rounded-full bg-rose-500 text-white text-[9px] font-bold leading-none">
+                        {myPendingTaskCount}
+                      </span>
+                    )}
+                  </button>
+                </div>
               </div>
               {myOtLiveState.active && trackView === "shift" && (
                 <div className="mb-4 rounded-lg px-3 py-2 text-xs font-medium bg-amber-500/10 text-amber-400">
@@ -1793,6 +2233,232 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace }) {
                   })()}
                 </>
               )}
+
+              {trackView === "schedule" && (
+                <div>
+                  <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-3 mb-3 text-center">
+                    <p className="text-[10px] text-neutral-500 mb-1">Your annual leave balance</p>
+                    <p className="text-lg font-semibold text-violet-300">{myRecord?.annualLeaveBalance ?? DEFAULT_ANNUAL_LEAVE_BALANCE} days left</p>
+                  </div>
+
+                  <div className="flex items-center gap-2 mb-3">
+                    <button onClick={() => setMyScheduleWeekOffset((o) => o - 1)} className="p-1.5 rounded-md text-neutral-500 hover:text-neutral-300 hover:bg-neutral-900">
+                      <ChevronDown size={14} className="rotate-90" />
+                    </button>
+                    <p className="text-xs font-medium text-neutral-300 flex-1 text-center">
+                      {(() => {
+                        const ref = new Date();
+                        ref.setDate(ref.getDate() + myScheduleWeekOffset * 7);
+                        const dates = weekDatesSat(ref);
+                        return `${fmtDateShort(dates[0])} – ${fmtDateShort(dates[6])}`;
+                      })()}
+                    </p>
+                    <button onClick={() => setMyScheduleWeekOffset((o) => o + 1)} className="p-1.5 rounded-md text-neutral-500 hover:text-neutral-300 hover:bg-neutral-900">
+                      <ChevronDown size={14} className="-rotate-90" />
+                    </button>
+                  </div>
+
+                  {swapForCell && (() => {
+                    const [, sdate] = swapForCell.split("|");
+                    const colleagues = Object.keys(users).filter((n) => n !== myUser);
+                    const submitSwap = async () => {
+                      if (!swapTargetName) return;
+                      const req = { id: Date.now(), fromName: myUser, toName: swapTargetName, date: sdate, status: "pending", requestedAt: Date.now() };
+                      await saveSwapRequests([...swapRequests, req]);
+                      setSwapForCell(null);
+                      setSwapTargetName("");
+                      showToast("Swap request sent — waiting for approval");
+                    };
+                    return (
+                      <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-3 mb-3">
+                        <p className="text-xs text-neutral-400 mb-2">Request a swap for {fmtDateLabel(sdate)} with:</p>
+                        <select value={swapTargetName} onChange={(e) => setSwapTargetName(e.target.value)} className="w-full bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 outline-none mb-2">
+                          <option value="">Choose a colleague...</option>
+                          {colleagues.map((n) => (
+                            <option key={n} value={n}>{n}</option>
+                          ))}
+                        </select>
+                        <div className="flex gap-2">
+                          <button disabled={!swapTargetName} onClick={submitSwap} className="flex-1 bg-neutral-100 text-neutral-900 text-xs font-medium px-3 py-2 rounded-lg disabled:opacity-40">
+                            Send request
+                          </button>
+                          <button onClick={() => { setSwapForCell(null); setSwapTargetName(""); }} className="text-xs text-neutral-500 hover:text-neutral-300 px-3">
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  <div className="overflow-x-auto -mx-4 px-4">
+                    <table className="w-full border-separate min-w-[620px]" style={{ borderSpacing: "3px" }}>
+                      <thead>
+                        <tr>
+                          <th className="text-left text-[9px] font-medium text-neutral-500 px-1.5 pb-1 sticky left-0 bg-neutral-950">Agent</th>
+                          {(() => {
+                            const ref = new Date();
+                            ref.setDate(ref.getDate() + myScheduleWeekOffset * 7);
+                            return weekDatesSat(ref).map((d) => (
+                              <th key={d} className="text-center text-[9px] font-medium text-neutral-500 px-1 pb-1 min-w-[68px]">
+                                {new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" })}
+                                <br />
+                                <span className="text-neutral-600">{fmtDateShort(d)}</span>
+                              </th>
+                            ));
+                          })()}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.keys(users).sort((a, b) => a.localeCompare(b)).map((uname) => {
+                          const ref = new Date();
+                          ref.setDate(ref.getDate() + myScheduleWeekOffset * 7);
+                          const dates = weekDatesSat(ref);
+                          const isMe = uname === myUser;
+                          const pub = publishedSchedule || {};
+                          return (
+                            <tr key={uname}>
+                              <td className={`text-[11px] font-medium px-1.5 py-0.5 whitespace-nowrap sticky left-0 bg-neutral-950 ${isMe ? "text-emerald-400" : "text-neutral-300"}`}>
+                                {uname}
+                              </td>
+                              {dates.map((d) => {
+                                const key = `${uname}|${d}`;
+                                const entry = pub[key];
+                                let cellContent = <span className="text-neutral-700">—</span>;
+                                let cellClass = "bg-neutral-900 border border-neutral-800";
+                                if (entry?.kind === "status") {
+                                  const s = SCHEDULE_STATUSES[entry.status];
+                                  if (s) { cellContent = s.label; cellClass = `${s.bg} ${s.text}`; }
+                                } else if (entry?.kind === "shift") {
+                                  cellContent = entry.label;
+                                  cellClass = "bg-emerald-900/40 border border-emerald-800 text-emerald-200";
+                                }
+                                return (
+                                  <td key={d} className="p-0">
+                                    {isMe && entry ? (
+                                      <button
+                                        onClick={() => setSwapForCell(key)}
+                                        title="Tap to request a swap"
+                                        className={`w-full h-7 rounded-md text-[10px] font-medium px-1 transition-colors hover:opacity-80 ${cellClass}`}
+                                      >
+                                        {cellContent}
+                                      </button>
+                                    ) : (
+                                      <div className={`w-full h-7 rounded-md text-[10px] font-medium px-1 flex items-center justify-center ${cellClass}`}>
+                                        {cellContent}
+                                      </div>
+                                    )}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-[10px] text-neutral-600 mt-2">Tap a scheduled cell in your own row to request a swap with a colleague.</p>
+
+                  {swapRequests.filter((r) => r.fromName === myUser).length > 0 && (
+                    <div className="mt-4">
+                      <p className="text-xs text-neutral-500 mb-2">Your swap requests</p>
+                      <div className="space-y-1.5">
+                        {swapRequests
+                          .filter((r) => r.fromName === myUser)
+                          .sort((a, b) => b.requestedAt - a.requestedAt)
+                          .slice(0, 8)
+                          .map((r) => {
+                            const badge =
+                              r.status === "approved"
+                                ? { label: "Approved", cls: "bg-emerald-500/10 text-emerald-400" }
+                                : r.status === "rejected"
+                                ? { label: "Rejected", cls: "bg-rose-500/10 text-rose-400" }
+                                : { label: "Pending", cls: "bg-amber-500/10 text-amber-400" };
+                            return (
+                              <div key={r.id} className="flex items-center justify-between bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2">
+                                <p className="text-xs text-neutral-300">
+                                  Swap with <span className="font-medium">{r.toName}</span> — {fmtDateLabel(r.date)}
+                                </p>
+                                <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${badge.cls}`}>{badge.label}</span>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {trackView === "dailytask" && (
+                <div>
+                  {(() => {
+                    const today = todayKey();
+                    // Uses the live/current schedule (not the published snapshot) — task assignment
+                    // should reflect the real current shift, including swaps the owner just approved,
+                    // without waiting for a separate Publish.
+                    const myShiftToday = schedule[`${myUser}|${today}`];
+                    const shiftLabel = myShiftToday?.kind === "shift" ? myShiftToday.label : "";
+                    const matchingRecurring = shiftLabel
+                      ? recurringTasks.filter((t) => shiftLabel.startsWith(fmtTime12(t.time)))
+                      : [];
+                    const doneTodayIds = new Set(
+                      recurringCompletions.filter((c) => c.name === myUser && c.date === today).map((c) => c.taskId)
+                    );
+
+                    const markOneOffDone = async (id) => {
+                      const updated = dailyTasks.map((t) => (t.id === id ? { ...t, status: "done", doneAt: Date.now() } : t));
+                      const ok = await saveDailyTasks(updated);
+                      if (ok) showToast("Task marked done");
+                    };
+                    const markRecurringDone = async (taskId) => {
+                      const updated = [...recurringCompletions, { id: Date.now(), taskId, name: myUser, date: today, doneAt: Date.now() }];
+                      const ok = await saveRecurringCompletions(updated);
+                      if (ok) showToast("Task marked done");
+                    };
+
+                    const rows = [
+                      ...matchingRecurring.map((t) => ({
+                        key: `r-${t.id}`,
+                        text: t.text,
+                        tag: `Today's ${shiftLabel} shift`,
+                        done: doneTodayIds.has(t.id),
+                        onDone: () => markRecurringDone(t.id),
+                      })),
+                      ...dailyTasks
+                        .filter((t) => t.name === myUser)
+                        .map((t) => ({
+                          key: `o-${t.id}`,
+                          text: t.text,
+                          tag: null,
+                          done: t.status === "done",
+                          onDone: () => markOneOffDone(t.id),
+                        })),
+                    ];
+
+                    if (rows.length === 0) return <p className="text-sm text-neutral-600">Nothing assigned right now.</p>;
+
+                    return (
+                      <div className="space-y-2">
+                        {rows.map((row) => (
+                          <div key={row.key} className={`border rounded-lg p-3 ${row.done ? "bg-neutral-900/50 border-neutral-800" : "bg-neutral-900 border-neutral-800"}`}>
+                            <div className="flex items-start justify-between gap-2 mb-1.5">
+                              {row.tag && <span className="text-[10px] font-medium bg-violet-500/10 text-violet-300 rounded-full px-2 py-0.5">{row.tag}</span>}
+                              <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ml-auto ${row.done ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-400"}`}>
+                                {row.done ? "Done" : "Pending"}
+                              </span>
+                            </div>
+                            <p className={`text-sm mb-2 ${row.done ? "text-neutral-400 line-through decoration-neutral-600" : "text-neutral-200"}`}>{row.text}</p>
+                            {!row.done && (
+                              <button onClick={row.onDone} className="flex items-center gap-1.5 text-xs font-medium bg-neutral-100 text-neutral-900 rounded-lg px-3 py-1.5">
+                                <Check size={13} /> Mark as done
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
             </>
           )}
         </div>
@@ -1928,6 +2594,8 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace }) {
                 role === "owner" && { key: "users", label: "Users", icon: UsersIcon },
                 { key: "report", label: "Report", icon: BarChart3 },
                 { key: "summary", label: "Summary", icon: CalendarRange },
+                role === "owner" && { key: "schedule", label: "Schedule", icon: LayoutGrid },
+                role === "owner" && { key: "dailytask", label: "Daily Task", icon: StickyNote },
                 role === "owner" && { key: "settings", label: "Settings", icon: SettingsIcon },
                 role === "owner" && { key: "activity", label: "Activity", icon: ActivityIcon },
               ].filter(Boolean).map((t) => {
@@ -2078,7 +2746,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace }) {
                     const trimmed = newUserName.trim();
                     if (!trimmed || !newUserPassword.trim()) { setDashError("Enter a name and password."); return; }
                     if (users[trimmed]) { setDashError("That name already exists."); return; }
-                    const updated = { ...users, [trimmed]: { password: newUserPassword.trim(), locked: false, note: "", team: "" } };
+                    const updated = { ...users, [trimmed]: { password: newUserPassword.trim(), locked: false, note: "", team: "", annualLeaveBalance: DEFAULT_ANNUAL_LEAVE_BALANCE } };
                     const ok = await saveUsers(updated, `Added user "${trimmed}"`);
                     if (ok) { setNewUserName(""); setNewUserPassword(""); }
                   }}
@@ -2118,6 +2786,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace }) {
                             <span className="text-sm font-medium text-neutral-100 truncate">{uname}</span>
                           </button>
                           {rec.team && <span className="text-[10px] font-medium text-neutral-400 bg-neutral-800 px-2 py-0.5 rounded-full whitespace-nowrap">{rec.team}</span>}
+                          <span className="text-[10px] font-medium text-violet-300 bg-violet-500/10 px-2 py-0.5 rounded-full whitespace-nowrap">{rec.annualLeaveBalance ?? DEFAULT_ANNUAL_LEAVE_BALANCE}d annual</span>
                           <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${badge.cls}`}>{badge.label}</span>
                           {info.otActive && <span className="text-[10px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap bg-amber-500/10 text-amber-400">On OT</span>}
                           {rec.locked && <span className="text-[10px] font-medium text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-full whitespace-nowrap">Locked</span>}
@@ -2141,6 +2810,9 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace }) {
                           </button>
                           <button title="Team" onClick={() => { setEditingTeamFor(editingTeamFor === uname ? "" : uname); setTeamEditValue(rec.team || ""); }} className="p-1.5 rounded-md text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800">
                             <Tag size={14} />
+                          </button>
+                          <button title="Annual leave balance" onClick={() => { setEditingLeaveFor(editingLeaveFor === uname ? "" : uname); setLeaveEditValue(String(rec.annualLeaveBalance ?? DEFAULT_ANNUAL_LEAVE_BALANCE)); }} className="p-1.5 rounded-md text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800">
+                            <CalendarRange size={14} />
                           </button>
                           <button title="Delete" onClick={() => setConfirmDeleteFor(confirmDeleteFor === uname ? "" : uname)} className="p-1.5 rounded-md text-neutral-400 hover:text-rose-400 hover:bg-neutral-800">
                             <Trash2 size={14} />
@@ -2203,6 +2875,30 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace }) {
                               const updated = { ...users, [uname]: { ...rec, team: teamEditValue.trim() } };
                               const ok = await saveUsers(updated, `Updated team for "${uname}"`);
                               if (ok) setEditingTeamFor("");
+                            }}
+                            className="bg-neutral-100 text-neutral-900 text-xs font-medium px-3 py-1.5 rounded-lg shrink-0"
+                          >
+                            Save
+                          </button>
+                        </div>
+                      )}
+
+                      {editingLeaveFor === uname && (
+                        <div className="mt-2 flex flex-col sm:flex-row gap-2">
+                          <input
+                            type="number"
+                            value={leaveEditValue}
+                            onChange={(e) => setLeaveEditValue(e.target.value)}
+                            placeholder="Days"
+                            className="flex-1 min-w-0 bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-1.5 text-xs text-neutral-100 placeholder-neutral-600 outline-none focus:border-neutral-500"
+                          />
+                          <button
+                            onClick={async () => {
+                              const n = parseInt(leaveEditValue, 10);
+                              if (Number.isNaN(n)) return;
+                              const updated = { ...users, [uname]: { ...rec, annualLeaveBalance: n } };
+                              const ok = await saveUsers(updated, `Set annual leave balance for "${uname}" to ${n} day(s)`);
+                              if (ok) setEditingLeaveFor("");
                             }}
                             className="bg-neutral-100 text-neutral-900 text-xs font-medium px-3 py-1.5 rounded-lg shrink-0"
                           >
@@ -2575,6 +3271,49 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace }) {
                   })}
                 </div>
               )}
+
+              {(dailyTasks.length > 0 || recurringCompletions.length > 0) && (
+                <div className="mt-6">
+                  <p className="text-xs text-neutral-500 mb-2">Daily tasks</p>
+                  <div className="space-y-1.5 max-w-2xl">
+                    {[
+                      ...dailyTasks.map((t) => ({
+                        key: `o-${t.id}`,
+                        name: t.name,
+                        text: t.text,
+                        status: t.status,
+                        sortAt: t.doneAt || t.assignedAt,
+                        sub: `Assigned ${new Date(t.assignedAt).toLocaleString()}${t.status === "done" ? ` · Done ${new Date(t.doneAt).toLocaleString()}` : ""}`,
+                      })),
+                      ...recurringCompletions.map((c) => {
+                        const task = recurringTasks.find((t) => t.id === c.taskId);
+                        return {
+                          key: `r-${c.id}`,
+                          name: c.name,
+                          text: task ? `[${fmtTime12(task.time)}] ${task.text}` : "(deleted recurring task)",
+                          status: "done",
+                          sortAt: c.doneAt,
+                          sub: `Done ${new Date(c.doneAt).toLocaleString()}`,
+                        };
+                      }),
+                    ]
+                      .sort((a, b) => b.sortAt - a.sortAt)
+                      .map((row) => (
+                        <div key={row.key} className="flex items-center justify-between bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2">
+                          <div className="min-w-0">
+                            <p className="text-xs text-neutral-300 truncate">
+                              <span className="font-medium">{row.name}</span> — {row.text}
+                            </p>
+                            <p className="text-[10px] text-neutral-600">{row.sub}</p>
+                          </div>
+                          <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap shrink-0 ${row.status === "done" ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-400"}`}>
+                            {row.status === "done" ? "Done" : "Pending"}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -2683,9 +3422,462 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace }) {
             </div>
           )}
 
+          {/* SCHEDULE (owner only) — a weekly roster: pick a time/label per person per day, or OFF / Annual / Training / Holiday */}
+          {dashTab === "schedule" && role === "owner" && (
+            <div>
+              <div className="flex items-center gap-2 mb-4">
+                <button onClick={() => setScheduleWeekOffset((o) => o - 1)} className="p-1.5 rounded-md text-neutral-500 hover:text-neutral-300 hover:bg-neutral-900">
+                  <ChevronDown size={14} className="rotate-90" />
+                </button>
+                <p className="text-sm font-medium text-neutral-200 min-w-[180px]">
+                  {(() => {
+                    const ref = new Date();
+                    ref.setDate(ref.getDate() + scheduleWeekOffset * 7);
+                    const dates = weekDatesSat(ref);
+                    return `${fmtDateShort(dates[0])} – ${fmtDateShort(dates[6])}`;
+                  })()}
+                </p>
+                <button onClick={() => setScheduleWeekOffset((o) => o + 1)} className="p-1.5 rounded-md text-neutral-500 hover:text-neutral-300 hover:bg-neutral-900">
+                  <ChevronDown size={14} className="-rotate-90" />
+                </button>
+                {scheduleWeekOffset !== 0 && (
+                  <button onClick={() => setScheduleWeekOffset(0)} className="text-xs text-neutral-500 hover:text-neutral-300 underline">
+                    This week
+                  </button>
+                )}
+                <input
+                  ref={csvFileInputRef}
+                  type="file"
+                  accept=".csv"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleImportScheduleCSV(file);
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  onClick={() => csvFileInputRef.current?.click()}
+                  className="ml-auto flex items-center gap-1.5 text-xs font-medium text-neutral-300 border border-neutral-700 rounded-lg px-3 py-1.5 hover:bg-neutral-900"
+                >
+                  <Download size={13} className="rotate-180" /> Import CSV
+                </button>
+                <button
+                  onClick={handleExportScheduleCSV}
+                  className="flex items-center gap-1.5 text-xs font-medium text-neutral-300 border border-neutral-700 rounded-lg px-3 py-1.5 hover:bg-neutral-900"
+                >
+                  <Download size={13} /> Export CSV
+                </button>
+              </div>
+              {importMsg && <p className="text-xs text-neutral-500 mb-4">{importMsg}</p>}
+              {!importMsg && (
+                <p className="text-[10px] text-neutral-600 mb-4">
+                  CSV format: first row = ID, Agent Name, then one column per date (e.g. "8/9/2026"). Each row after = ID, exact Agent Name, then OFF / Annual / Training / Holiday or a custom shift label per date.
+                </p>
+              )}
+
+              {editingCell && (() => {
+                const [ename, edate] = editingCell.split("|");
+                const applyEntry = async (entry) => {
+                  const ok = await applyScheduleEntry(ename, edate, entry);
+                  if (ok) { setEditingCell(null); setCellTimeInput(""); setCellSuffixInput(""); }
+                };
+                return (
+                  <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 mb-4 max-w-md">
+                    <p className="text-xs text-neutral-500 mb-3">
+                      Editing <span className="text-neutral-300 font-medium">{ename}</span> — {fmtDateLabel(edate)}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5 mb-3">
+                      {Object.entries(SCHEDULE_STATUSES).map(([key, s]) => (
+                        <button
+                          key={key}
+                          onClick={() => applyEntry({ kind: "status", status: key })}
+                          className={`text-xs font-medium px-3 py-1.5 rounded-full ${s.bg} ${s.text}`}
+                        >
+                          {s.label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-neutral-600 mb-1.5">Or pick a custom time:</p>
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      <TimePickerButton value={cellTimeInput} onConfirm={setCellTimeInput} direction="up" />
+                      <input
+                        value={cellSuffixInput}
+                        onChange={(e) => setCellSuffixInput(e.target.value)}
+                        placeholder="Optional label"
+                        className="flex-1 min-w-[100px] bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-neutral-500"
+                      />
+                      <button
+                        disabled={!cellTimeInput}
+                        onClick={() => applyEntry({ kind: "shift", label: `${fmtTime12(cellTimeInput)}${cellSuffixInput.trim() ? " " + cellSuffixInput.trim() : ""}` })}
+                        className="bg-neutral-100 text-neutral-900 text-xs font-medium px-3 py-2 rounded-lg disabled:opacity-40"
+                      >
+                        Save
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {schedule[editingCell] && (
+                        <button onClick={() => applyEntry(null)} className="flex items-center gap-1 text-xs font-medium text-rose-400 hover:text-rose-300 border border-rose-500/30 bg-rose-500/10 rounded-lg px-3 py-1.5">
+                          <Trash2 size={12} /> Delete
+                        </button>
+                      )}
+                      <button onClick={() => { setEditingCell(null); setCellTimeInput(""); setCellSuffixInput(""); }} className="text-xs text-neutral-500 hover:text-neutral-300 ml-auto">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
+                <table className="w-full border-separate min-w-[620px]" style={{ borderSpacing: "3px" }}>
+                  <thead>
+                    <tr>
+                      <th className="text-left text-[9px] font-medium text-neutral-500 px-1.5 pb-1 sticky left-0 bg-neutral-950">Agent</th>
+                      {(() => {
+                        const ref = new Date();
+                        ref.setDate(ref.getDate() + scheduleWeekOffset * 7);
+                        return weekDatesSat(ref).map((d) => (
+                          <th key={d} className="text-center text-[9px] font-medium text-neutral-500 px-1 pb-1 min-w-[68px]">
+                            {new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" })}
+                            <br />
+                            <span className="text-neutral-600">{fmtDateShort(d)}</span>
+                          </th>
+                        ));
+                      })()}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.keys(users).sort((a, b) => a.localeCompare(b)).map((uname) => {
+                      const ref = new Date();
+                      ref.setDate(ref.getDate() + scheduleWeekOffset * 7);
+                      const dates = weekDatesSat(ref);
+                      const balance = users[uname]?.annualLeaveBalance ?? DEFAULT_ANNUAL_LEAVE_BALANCE;
+                      return (
+                        <tr key={uname}>
+                          <td className="text-[11px] font-medium text-neutral-300 px-1.5 py-0.5 whitespace-nowrap sticky left-0 bg-neutral-950">
+                            {uname}
+                            <span className="block text-[8.5px] font-normal text-neutral-600">{balance}d annual</span>
+                          </td>
+                          {dates.map((d) => {
+                            const key = `${uname}|${d}`;
+                            const entry = schedule[key];
+                            let cellContent = <span className="text-neutral-700">—</span>;
+                            let cellClass = "bg-neutral-900 border border-neutral-800 hover:border-neutral-700";
+                            if (entry?.kind === "status") {
+                              const s = SCHEDULE_STATUSES[entry.status];
+                              if (s) {
+                                cellContent = s.label;
+                                cellClass = `${s.bg} ${s.text}`;
+                              }
+                            } else if (entry?.kind === "shift") {
+                              cellContent = entry.label;
+                              cellClass = "bg-emerald-900/40 border border-emerald-800 text-emerald-200";
+                            }
+                            return (
+                              <td key={d} className="p-0">
+                                <button
+                                  onClick={() => { setEditingCell(key); setCellTimeInput(""); setCellSuffixInput(""); }}
+                                  className={`w-full h-7 rounded-md text-[10px] font-medium px-1 transition-colors ${cellClass}`}
+                                >
+                                  {cellContent}
+                                </button>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
+                    {Object.keys(users).length === 0 && (
+                      <tr>
+                        <td colSpan={8} className="text-sm text-neutral-600 px-2 py-4">No users yet — add some from the Users tab first.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pending shift-swap requests — employees ask, owner approves here */}
+              {swapRequests.filter((r) => r.status === "pending").length > 0 && (
+                <div className="mt-5 max-w-md">
+                  <p className="text-xs text-neutral-500 mb-2">Pending swap requests</p>
+                  <div className="space-y-2">
+                    {swapRequests.filter((r) => r.status === "pending").map((r) => {
+                      const describe = (name) => {
+                        const e = schedule[`${name}|${r.date}`];
+                        if (!e) return "no shift set";
+                        if (e.kind === "status") return SCHEDULE_STATUSES[e.status]?.label || e.status;
+                        return e.label;
+                      };
+                      return (
+                        <div key={r.id} className="bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2.5">
+                          <p className="text-xs text-neutral-500 mb-1.5">{fmtDateLabel(r.date)}</p>
+                          <p className="text-sm text-neutral-200 mb-2">
+                            <span className="font-medium">{r.fromName}</span> <span className="text-neutral-500">({describe(r.fromName)})</span> ⇄ <span className="font-medium">{r.toName}</span> <span className="text-neutral-500">({describe(r.toName)})</span>
+                          </p>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={async () => {
+                                const key1 = `${r.fromName}|${r.date}`;
+                                const key2 = `${r.toName}|${r.date}`;
+                                const updatedSchedule = { ...schedule };
+                                const e1 = schedule[key1];
+                                const e2 = schedule[key2];
+                                if (e2) updatedSchedule[key1] = e2; else delete updatedSchedule[key1];
+                                if (e1) updatedSchedule[key2] = e1; else delete updatedSchedule[key2];
+                                await saveSchedule(updatedSchedule);
+                                await saveSwapRequests(swapRequests.map((x) => (x.id === r.id ? { ...x, status: "approved" } : x)));
+                                addAudit(`Approved shift swap between "${r.fromName}" and "${r.toName}" for ${fmtDateLabel(r.date)}`);
+                              }}
+                              className="flex items-center gap-1 text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-md px-2.5 py-1.5 hover:bg-emerald-500/20"
+                            >
+                              <Check size={13} /> Approve
+                            </button>
+                            <button
+                              onClick={async () => {
+                                await saveSwapRequests(swapRequests.map((x) => (x.id === r.id ? { ...x, status: "rejected" } : x)));
+                              }}
+                              className="flex items-center gap-1 text-xs font-medium bg-rose-500/10 text-rose-400 border border-rose-500/30 rounded-md px-2.5 py-1.5 hover:bg-rose-500/20"
+                            >
+                              <X size={13} /> Reject
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Record of approved swaps so the owner can review what changed, even after
+                  it drops off the pending list. */}
+              {swapRequests.filter((r) => r.status === "approved").length > 0 && (
+                <div className="mt-5 max-w-md">
+                  <p className="text-xs text-neutral-500 mb-2">Approved swaps</p>
+                  <div className="space-y-1.5">
+                    {swapRequests
+                      .filter((r) => r.status === "approved")
+                      .sort((a, b) => b.requestedAt - a.requestedAt)
+                      .slice(0, 10)
+                      .map((r) => (
+                        <div key={r.id} className="flex items-center justify-between bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2">
+                          <p className="text-xs text-neutral-300">
+                            <span className="font-medium">{r.fromName}</span> ⇄ <span className="font-medium">{r.toName}</span> — {fmtDateLabel(r.date)}
+                          </p>
+                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap bg-emerald-500/10 text-emerald-400">Approved</span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Danger zone — wipes every cell for the week currently shown above. Doesn't
+                  retroactively restore annual leave balances that were already deducted. */}
+              <div className="mt-6 max-w-md">
+                {!confirmDeleteSchedule ? (
+                  <button
+                    onClick={() => setConfirmDeleteSchedule(true)}
+                    className="flex items-center gap-1.5 text-xs font-medium text-rose-400 hover:text-rose-300"
+                  >
+                    <Trash2 size={13} /> Delete this week's schedule
+                  </button>
+                ) : (
+                  <div className="bg-rose-500/10 border border-rose-500/30 rounded-lg p-3">
+                    <p className="text-xs text-rose-300 mb-2">Delete every cell for this week ({(() => { const ref = new Date(); ref.setDate(ref.getDate() + scheduleWeekOffset * 7); const dates = weekDatesSat(ref); return `${fmtDateShort(dates[0])} – ${fmtDateShort(dates[6])}`; })()})? This can't be undone, and won't restore any annual leave days already deducted.</p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={async () => {
+                          const ref = new Date();
+                          ref.setDate(ref.getDate() + scheduleWeekOffset * 7);
+                          const dates = weekDatesSat(ref);
+                          const updated = { ...schedule };
+                          Object.keys(users).forEach((uname) => {
+                            dates.forEach((d) => { delete updated[`${uname}|${d}`]; });
+                          });
+                          await saveSchedule(updated);
+                          setConfirmDeleteSchedule(false);
+                        }}
+                        className="text-xs font-medium bg-rose-500 text-white rounded-md px-3 py-1.5"
+                      >
+                        Yes, delete this week
+                      </button>
+                      <button onClick={() => setConfirmDeleteSchedule(false)} className="text-xs text-neutral-400 hover:text-neutral-200 px-2">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* DAILY TASK (owner only) */}
+          {dashTab === "dailytask" && role === "owner" && (
+            <div>
+              {/* Recurring tasks — tied to a shift's start time instead of a specific person.
+                  Whoever's shift for a given day starts at that time automatically gets the
+                  task that day (based on the live schedule, so swaps move it instantly). */}
+              <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3 mb-4 max-w-md">
+                <p className="text-xs text-neutral-500 mb-1">Recurring tasks (by shift)</p>
+                <p className="text-[10px] text-neutral-600 mb-2">Applies automatically to whoever's shift starts at that time — no need to reassign it every day.</p>
+                <div className="flex flex-wrap gap-2 mb-3">
+                  <TimePickerButton value={newRecurringTime} onConfirm={setNewRecurringTime} />
+                  <input
+                    value={newRecurringText}
+                    onChange={(e) => setNewRecurringText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && newRecurringTime && newRecurringText.trim()) {
+                        saveRecurringTasks([...recurringTasks, { id: Date.now(), time: newRecurringTime, text: newRecurringText.trim(), createdAt: Date.now() }]);
+                        setNewRecurringTime(""); setNewRecurringText("");
+                      }
+                    }}
+                    placeholder="Task for that shift"
+                    className="flex-1 min-w-[120px] bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-1.5 text-xs text-neutral-100 placeholder-neutral-600 outline-none focus:border-neutral-500"
+                  />
+                  <button
+                    disabled={!newRecurringTime || !newRecurringText.trim()}
+                    onClick={() => {
+                      saveRecurringTasks([...recurringTasks, { id: Date.now(), time: newRecurringTime, text: newRecurringText.trim(), createdAt: Date.now() }]);
+                      setNewRecurringTime(""); setNewRecurringText("");
+                    }}
+                    className="text-xs font-medium bg-neutral-100 text-neutral-900 rounded-lg px-3 py-1.5 disabled:opacity-40 shrink-0"
+                  >
+                    Add
+                  </button>
+                </div>
+                {recurringTasks.length === 0 ? (
+                  <p className="text-xs text-neutral-600">None yet.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {recurringTasks.map((t) => (
+                      <div key={t.id} className="flex items-center justify-between bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5">
+                        <p className="text-xs text-neutral-300 truncate">
+                          <span className="font-medium bg-violet-500/10 text-violet-300 rounded px-1.5 py-0.5 mr-1.5">{fmtTime12(t.time)}</span>
+                          {t.text}
+                        </p>
+                        <button onClick={() => saveRecurringTasks(recurringTasks.filter((x) => x.id !== t.id))} className="w-5 h-5 flex items-center justify-center rounded-full hover:bg-neutral-800 text-neutral-600 hover:text-neutral-300 shrink-0">
+                          <X size={11} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Daily tasks — assign a one-off task to a specific employee. */}
+              <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3 mb-4 max-w-md">
+                <p className="text-xs text-neutral-500 mb-2">One-off task</p>
+                <div className="flex flex-col gap-2 mb-3">
+                  <select value={newTaskUser} onChange={(e) => setNewTaskUser(e.target.value)} className="bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-1.5 text-xs text-neutral-100 outline-none">
+                    <option value="">Assign to...</option>
+                    {Object.keys(users).sort((a, b) => a.localeCompare(b)).map((n) => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </select>
+                  <div className="flex gap-2">
+                    <input
+                      value={newTaskText}
+                      onChange={(e) => setNewTaskText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && newTaskUser && newTaskText.trim()) {
+                          saveDailyTasks([...dailyTasks, { id: Date.now(), name: newTaskUser, text: newTaskText.trim(), assignedAt: Date.now(), status: "pending" }]);
+                          setNewTaskText("");
+                        }
+                      }}
+                      placeholder="What do they need to do?"
+                      className="flex-1 bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-1.5 text-xs text-neutral-100 placeholder-neutral-600 outline-none focus:border-neutral-500"
+                    />
+                    <button
+                      disabled={!newTaskUser || !newTaskText.trim()}
+                      onClick={() => {
+                        saveDailyTasks([...dailyTasks, { id: Date.now(), name: newTaskUser, text: newTaskText.trim(), assignedAt: Date.now(), status: "pending" }]);
+                        setNewTaskText("");
+                      }}
+                      className="text-xs font-medium bg-neutral-100 text-neutral-900 rounded-lg px-3 py-1.5 disabled:opacity-40"
+                    >
+                      Assign
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Unified activity list — every task instance (one-off assignments + recurring
+                  completions), each with its own status and, for done ones, who did it. */}
+              <div className="max-w-2xl">
+                <p className="text-xs text-neutral-500 mb-2">All tasks</p>
+                {(() => {
+                  const rows = [
+                    ...dailyTasks.map((t) => ({
+                      key: `o-${t.id}`,
+                      name: t.name,
+                      text: t.text,
+                      status: t.status,
+                      sortAt: t.doneAt || t.assignedAt,
+                      sub: t.status === "done" ? `Done ${new Date(t.doneAt).toLocaleString()}` : `Assigned ${new Date(t.assignedAt).toLocaleString()}`,
+                      onDelete: () => saveDailyTasks(dailyTasks.filter((x) => x.id !== t.id)),
+                    })),
+                    ...recurringCompletions.map((c) => {
+                      const task = recurringTasks.find((t) => t.id === c.taskId);
+                      return {
+                        key: `r-${c.id}`,
+                        name: c.name,
+                        text: task ? `[${fmtTime12(task.time)}] ${task.text}` : "(deleted recurring task)",
+                        status: "done",
+                        sortAt: c.doneAt,
+                        sub: `Done ${new Date(c.doneAt).toLocaleString()}`,
+                        onDelete: () => saveRecurringCompletions(recurringCompletions.filter((x) => x.id !== c.id)),
+                      };
+                    }),
+                  ].sort((a, b) => b.sortAt - a.sortAt);
+
+                  if (rows.length === 0) return <p className="text-sm text-neutral-600">No tasks yet.</p>;
+
+                  return (
+                    <div className="space-y-1.5">
+                      {rows.map((row) => (
+                        <div key={row.key} className="flex items-center justify-between bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2">
+                          <div className="min-w-0">
+                            <p className="text-xs text-neutral-300 truncate">
+                              <span className="font-medium">{row.name}</span> — {row.text}
+                            </p>
+                            <p className="text-[10px] text-neutral-600">{row.sub}</p>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${row.status === "done" ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-400"}`}>
+                              {row.status === "done" ? "Done" : "Pending"}
+                            </span>
+                            <button onClick={row.onDelete} className="w-5 h-5 flex items-center justify-center rounded-full hover:bg-neutral-800 text-neutral-600 hover:text-neutral-300">
+                              <X size={11} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+
           {/* SETTINGS (owner only) */}
           {dashTab === "settings" && role === "owner" && (
             <div className="max-w-sm space-y-4">
+              <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+                <p className="text-xs text-neutral-500 mb-2 flex items-center gap-1.5"><LayoutGrid size={13} /> Team schedule</p>
+                <p className="text-[11px] text-neutral-600 mb-3">
+                  Employees only ever see the last <span className="text-neutral-400">published</span> version of the schedule — your edits in the Schedule tab stay private until you publish them here.
+                </p>
+                {publishMsg && <p className={`text-[11px] mb-2 ${publishMsg.startsWith("Published") ? "text-emerald-400" : publishMsg.startsWith("Unpublished") ? "text-amber-400" : "text-rose-400"}`}>{publishMsg}</p>}
+                <div className="flex gap-2">
+                  <button onClick={publishSchedule} className="flex-1 bg-neutral-100 text-neutral-900 text-sm font-medium px-4 py-2 rounded-lg">
+                    Publish current schedule
+                  </button>
+                  <button onClick={unpublishSchedule} className="text-xs font-medium text-rose-400 hover:text-rose-300 border border-rose-500/30 bg-rose-500/10 rounded-lg px-3">
+                    Unpublish
+                  </button>
+                </div>
+              </div>
+
               <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
                 <p className="text-xs text-neutral-500 mb-2">Break time limit (minutes)</p>
                 <p className="text-[11px] text-neutral-600 mb-3">If a break runs longer than this, break gets locked for the rest of that shift and shows in red.</p>
