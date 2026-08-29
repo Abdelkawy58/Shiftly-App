@@ -4,7 +4,7 @@ import {
   Play, Coffee, Square, Clock, Lock, ChevronDown, Plus, Trash2, Key,
   UserX, UserCheck, Download, Settings as SettingsIcon, Users as UsersIcon,
   BarChart3, Activity as ActivityIcon, CalendarRange, AlertTriangle,
-  StickyNote, Tag, ShieldQuestion, Home, Info, X, Volume2, VolumeX, Zap, Timer, LogOut,
+  StickyNote, Tag, ShieldQuestion, Home, Info, X, Volume2, VolumeX, Zap, Timer, LogOut, ArrowLeft,
   Building2, RefreshCw, Check, LayoutGrid, Eye, EyeOff, Hash,
 } from "lucide-react";
 
@@ -1292,6 +1292,17 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, initi
     setDashTab("overview");
   };
 
+  // One back button, one consistent behavior: each press steps back exactly one level. First press
+  // from inside Agent/Dashboard logs out of that level only (choose a different name / re-enter the
+  // dashboard password) — press it again from there and it asks to confirm before leaving the workspace.
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const handleBack = () => {
+    if (tab === "track" && myUser) { handleTrackLogout(); return; }
+    if (tab === "dashboard" && role === "owner") { handleDashboardLock(); return; }
+    if (onSwitchWorkspace) setShowExitConfirm(true);
+  };
+  const backLabel = tab === "track" && myUser ? "Choose a different name" : tab === "dashboard" && role === "owner" ? "Lock dashboard" : "Switch workspace";
+
   const handleForgotReset = async () => {
     setForgotError("");
     if (!auth.recoveryCode) { setForgotError("No recovery code has been set up for this dashboard. Ask whoever configured it to reset your access from Settings."); return; }
@@ -2280,6 +2291,30 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, initi
           </div>
         </div>
       )}
+      {showExitConfirm && (
+        <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-5" onClick={() => setShowExitConfirm(false)}>
+          <div className="w-full max-w-xs bg-neutral-900 border border-neutral-800 rounded-xl p-5 text-center" onClick={(e) => e.stopPropagation()}>
+            <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center mx-auto mb-3">
+              <ArrowLeft size={18} className="text-amber-400" />
+            </div>
+            <p className="text-sm font-medium text-neutral-100 mb-1">Leave this workspace?</p>
+            <p className="text-xs text-neutral-500 mb-4">
+              {tab === "track" ? "You'll need to enter the workspace name again to come back to the Agent screen." : "You'll need to enter the workspace name again to come back to the Dashboard."}
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setShowExitConfirm(false); onSwitchWorkspace(); }}
+                className="flex-1 bg-rose-500/10 text-rose-400 text-sm font-medium px-3 py-2 rounded-lg hover:bg-rose-500/20"
+              >
+                Yes, leave
+              </button>
+              <button onClick={() => setShowExitConfirm(false)} className="flex-1 bg-neutral-100 text-neutral-900 text-sm font-medium px-3 py-2 rounded-lg">
+                No, stay
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showPresenceCheck && (
         <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50">
           <div className="flex items-center gap-3 bg-neutral-900 border border-neutral-700 text-neutral-100 text-sm font-medium pl-4 pr-2 py-2 rounded-full shadow-lg">
@@ -2331,13 +2366,13 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, initi
               {tab === "track" ? "Agent" : "Dashboard"}
             </span>
           )}
-          {onSwitchWorkspace && (
+          {(onSwitchWorkspace || (tab === "track" && myUser) || (tab === "dashboard" && role === "owner")) && (
             <button
-              title="Switch dashboard"
-              onClick={onSwitchWorkspace}
+              title={backLabel}
+              onClick={handleBack}
               className="p-1.5 rounded-md text-neutral-600 hover:text-neutral-300 hover:bg-neutral-900"
             >
-              <LogOut size={15} />
+              <ArrowLeft size={15} />
             </button>
           )}
         </div>
@@ -2407,9 +2442,6 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, initi
                 <div className="flex items-center gap-1">
                   <button title={soundMuted ? "Unmute" : "Mute"} onClick={toggleSound} className="p-1.5 rounded-md text-neutral-500 hover:text-neutral-300 hover:bg-neutral-900">
                     {soundMuted ? <VolumeX size={15} /> : <Volume2 size={15} />}
-                  </button>
-                  <button title="Log out" onClick={handleTrackLogout} className="p-1.5 rounded-md text-neutral-500 hover:text-neutral-300 hover:bg-neutral-900">
-                    <LogOut size={15} />
                   </button>
                 </div>
               </div>
@@ -3251,9 +3283,6 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, initi
             <span className="text-[11px] text-neutral-500">{liveCounts.working} working · {liveCounts.onBreak} on break · {liveCounts.onOt} on OT</span>
             <div className="ml-auto flex items-center gap-1">
               <span className="text-[10px] text-neutral-600 px-2">Owner</span>
-              <button title="Lock dashboard" onClick={handleDashboardLock} className="p-1.5 rounded-md text-neutral-500 hover:text-neutral-300 hover:bg-neutral-900">
-                <LogOut size={15} />
-              </button>
             </div>
           </div>
 
