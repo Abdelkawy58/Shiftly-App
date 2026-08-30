@@ -18,7 +18,6 @@ const SCHEDULE_STATUSES = {
 };
 const DEFAULT_ANNUAL_LEAVE_BALANCE = 21;
 
-const OWNER_PASSWORD_FALLBACK = "owner2026"; // used only until the owner sets a custom password in Settings
 // Secret admin key — only for you (the builder). Visit the app with ?admin=THIS_VALUE
 // in the URL to reach the hidden workspace-approval screen. Never share this string.
 const ADMIN_SECRET = "8122000";
@@ -688,6 +687,20 @@ function personBadge(status, activity) {
 
 const DEFAULT_SETTINGS = { breakLimitMinutes: 60, standardHours: 9, graceMinutes: 15, otCapHours: 5, otMaxHours: 3, minRestHours: 0, overviewRefreshSeconds: 10 };
 const DEFAULT_AUTH = { ownerPassword: null, recoveryCode: null };
+
+// Every Dashboard tab that can be individually granted to a non-owner Dashboard user.
+const DASH_TABS = [
+  { key: "overview", label: "Overview" },
+  { key: "approvals", label: "Approvals" },
+  { key: "users", label: "Users" },
+  { key: "actions", label: "Actions" },
+  { key: "report", label: "Report" },
+  { key: "summary", label: "Summary" },
+  { key: "schedule", label: "Schedule" },
+  { key: "dailytask", label: "Daily Task" },
+  { key: "settings", label: "Settings" },
+  { key: "activity", label: "Activity" },
+];
 const EVENT_LABEL = {
   start: "Available",
   break_start: "Break",
@@ -846,12 +859,13 @@ function useAutoClearMsg(value, setter, delayMs = 2500) {
   }, [value, setter, delayMs]);
 }
 
-function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, initialTab = "track", lockTab = false }) {
+function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBackToChooser, initialTab = "track", lockTab = false }) {
   const wsKey = useCallback((base) => `ws:${workspaceName}:${base}`, [workspaceName]);
 
   const [loading, setLoading] = useState(true);
   const [events, setEvents] = useState([]);
   const [users, setUsers] = useState({});
+  const [dashboardUsers, setDashboardUsers] = useState({});
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [auth, setAuth] = useState(DEFAULT_AUTH);
   const [audit, setAudit] = useState([]);
@@ -897,18 +911,18 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, initi
   const [otMaxHoursInput, setOtMaxHoursInput] = useState(String(DEFAULT_SETTINGS.otMaxHours));
   const [otMaxHoursMsg, setOtMaxHoursMsg] = useState("");
 
-  const [role, setRole] = useState(null); // 'owner' | null — Dashboard has one shared password for now (Phase 2 will add real per-person accounts)
-  const [pwInput, setPwInput] = useState("");
-  const [pwError, setPwError] = useState(false);
+  const [role, setRole] = useState(null); // 'owner' | 'member' | null — derived from the logged-in dashboard user
+  const [myDashUser, setMyDashUser] = useState(""); // logged-in dashboard username
+  const [dashLoginName, setDashLoginName] = useState("");
+  const [dashLoginPassword, setDashLoginPassword] = useState("");
+  const [dashLoginError, setDashLoginError] = useState("");
+  const [newDashUserId, setNewDashUserId] = useState("");
+  const [newDashUserPassword, setNewDashUserPassword] = useState("");
+  const [newDashUserPerms, setNewDashUserPerms] = useState({});
+  const [editingDashPermsFor, setEditingDashPermsFor] = useState("");
+  const [editingDashPerms, setEditingDashPerms] = useState({});
+  const [usersSubTab, setUsersSubTab] = useState("agent"); // 'agent' | 'dashboard' — the two halves of the Users tab
   const [dashTab, setDashTab] = useState("overview");
-
-  const [showForgotPanel, setShowForgotPanel] = useState(false);
-  const [forgotRecoveryCode, setForgotRecoveryCode] = useState("");
-  const [forgotNewPassword, setForgotNewPassword] = useState("");
-  const [forgotError, setForgotError] = useState("");
-
-  const [firstRunRecoveryInput, setFirstRunRecoveryInput] = useState("");
-  const [firstRunRecoveryError, setFirstRunRecoveryError] = useState("");
 
   const [newUserName, setNewUserName] = useState("");
   const [newUserId, setNewUserId] = useState("");
@@ -948,8 +962,6 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, initi
 
   const [changeOwnerNew, setChangeOwnerNew] = useState("");
   const [changeOwnerMsg, setChangeOwnerMsg] = useState("");
-  const [recoveryCodeInput, setRecoveryCodeInput] = useState("");
-  const [recoveryMsg, setRecoveryMsg] = useState("");
 
   // Every "Saved." / error confirmation in Settings clears itself a few seconds after it appears.
   useAutoClearMsg(publishMsg, setPublishMsg);
@@ -962,7 +974,6 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, initi
   useAutoClearMsg(minRestHoursMsg, setMinRestHoursMsg);
   useAutoClearMsg(overviewRefreshMsg, setOverviewRefreshMsg);
   useAutoClearMsg(changeOwnerMsg, setChangeOwnerMsg);
-  useAutoClearMsg(recoveryMsg, setRecoveryMsg);
 
   const [summaryPeriod, setSummaryPeriod] = useState("week"); // 'week' | 'month'
   const [summarySortBy, setSummarySortBy] = useState("hours"); // 'hours' | 'name' | 'shifts'
@@ -1031,9 +1042,11 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, initi
     setOtCapHoursMsg("");
     setOtMaxHoursMsg("");
     setChangeOwnerMsg("");
-    setRecoveryMsg("");
     setPublishMsg("");
     setImportMsg("");
+    setUsersSubTab("agent");
+    setEditingDashPermsFor("");
+    setNewDashUserPerms({});
   }, []);
 
   const loadAll = useCallback(async () => {
@@ -1044,6 +1057,10 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, initi
     try {
       const usersRes = await window.storage.get(wsKey("attendance-users"), true).catch(() => null);
       setUsers(usersRes?.value ? JSON.parse(usersRes.value) : {});
+    } catch (e) {}
+    try {
+      const dashUsersRes = await window.storage.get(wsKey("attendance-dashboard-users"), true).catch(() => null);
+      setDashboardUsers(dashUsersRes?.value ? JSON.parse(dashUsersRes.value) : {});
     } catch (e) {}
     try {
       const settingsRes = await window.storage.get(wsKey("attendance-settings"), true).catch(() => null);
@@ -1112,6 +1129,10 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, initi
       try {
         const myRes = await window.storage.get(wsKey("my-user"), false).catch(() => null);
         if (myRes?.value) setMyUser(myRes.value);
+      } catch (e) {}
+      try {
+        const myDashRes = await window.storage.get(wsKey("my-dash-user"), false).catch(() => null);
+        if (myDashRes?.value) setMyDashUser(myDashRes.value);
       } catch (e) {}
       await loadAll();
       setLoading(false);
@@ -1229,6 +1250,20 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, initi
     }
   };
 
+  const saveDashboardUsers = async (updated, auditText) => {
+    try {
+      const res = await window.storage.set(wsKey("attendance-dashboard-users"), JSON.stringify(updated), true);
+      if (!res) throw new Error("no result");
+      setDashboardUsers(updated);
+      setDashError("");
+      if (auditText) addAudit(auditText);
+      return true;
+    } catch (e) {
+      setDashError("Could not save, try again.");
+      return false;
+    }
+  };
+
   const saveSettings = async (updated, auditText) => {
     try {
       const res = await window.storage.set(wsKey("attendance-settings"), JSON.stringify(updated), true);
@@ -1254,8 +1289,6 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, initi
       return false;
     }
   };
-
-  const effectiveOwnerPassword = auth.ownerPassword || OWNER_PASSWORD_FALLBACK;
 
   const handleLogin = async () => {
     setLoginError("");
@@ -1285,66 +1318,112 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, initi
     setLoginError("");
   };
 
-  const handleDashboardLock = () => {
-    setRole(null);
-    setPwInput("");
-    setPwError(false);
-    setDashTab("overview");
+  const handleDashboardLogin = async () => {
+    setDashLoginError("");
+    if (!dashLoginName) { setDashLoginError("Choose your name."); return; }
+    const record = dashboardUsers[dashLoginName];
+    if (!record) { setDashLoginError("That account no longer exists."); return; }
+    if (record.password !== dashLoginPassword) { setDashLoginError("Wrong password."); return; }
+    try {
+      await window.storage.set(wsKey("my-dash-user"), dashLoginName, false);
+      setMyDashUser(dashLoginName);
+      setDashLoginPassword("");
+    } catch (e) {
+      setDashLoginError("Could not log in, try again.");
+    }
+  };
+
+  const handleDashboardLock = async () => {
+    try {
+      await window.storage.delete(wsKey("my-dash-user"), false);
+    } catch (e) {}
+    setMyDashUser("");
+    setDashLoginName("");
+    setDashLoginPassword("");
+    setDashLoginError("");
   };
 
   // One back button, one consistent behavior: each press steps back exactly one level. First press
-  // from inside Agent/Dashboard logs out of that level only (choose a different name / re-enter the
-  // dashboard password) — press it again from there and it asks to confirm before leaving the workspace.
+  // from inside Agent/Dashboard logs out of that level only (choose a different name / log out of the
+  // dashboard account) — from there, back goes to the Agent/Dashboard chooser, and only from the
+  // chooser itself does "Switch workspace" actually leave.
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const handleBack = () => {
     if (tab === "track" && myUser) { handleTrackLogout(); return; }
-    if (tab === "dashboard" && role === "owner") { handleDashboardLock(); return; }
+    if (tab === "dashboard" && role) { handleDashboardLock(); return; }
+    if (onBackToChooser) { onBackToChooser(); return; }
     if (onSwitchWorkspace) setShowExitConfirm(true);
   };
-  const backLabel = tab === "track" && myUser ? "Choose a different name" : tab === "dashboard" && role === "owner" ? "Lock dashboard" : "Switch workspace";
+  const backLabel =
+    tab === "track" && myUser
+      ? "Choose a different name"
+      : tab === "dashboard" && role
+      ? "Log out of Dashboard"
+      : onBackToChooser
+      ? "Choose Agent or Dashboard"
+      : "Switch workspace";
 
-  const handleForgotReset = async () => {
-    setForgotError("");
-    if (!auth.recoveryCode) { setForgotError("No recovery code has been set up for this dashboard. Ask whoever configured it to reset your access from Settings."); return; }
-    if (forgotRecoveryCode.trim() !== auth.recoveryCode) { setForgotError("That recovery code doesn't match."); return; }
-    if (!forgotNewPassword.trim() || forgotNewPassword.trim().length < 4) { setForgotError("Choose a new password, at least 4 characters."); return; }
-    const ok = await saveAuth({ ...auth, ownerPassword: forgotNewPassword.trim() }, "Owner password was reset using the recovery code");
-    if (ok) {
-      setRole("owner");
-      setDashTab("overview");
-      setShowForgotPanel(false);
-      setForgotRecoveryCode("");
-      setForgotNewPassword("");
-    } else {
-      setForgotError("Could not save the new password, try again.");
-    }
+  const handleSetupFirstDashOwner = async () => {
+    setDashLoginError("");
+    const trimmed = dashLoginName.trim();
+    if (!trimmed || !dashLoginPassword.trim()) { setDashLoginError("Enter a name and password."); return; }
+    const allPerms = Object.fromEntries(DASH_TABS.map((t) => [t.key, true]));
+    const updated = { [trimmed]: { password: dashLoginPassword.trim(), role: "owner", permissions: allPerms, locked: false } };
+    const ok = await saveDashboardUsers(updated, `Set up Dashboard access — "${trimmed}" is the owner`);
+    if (!ok) { setDashLoginError("Could not save, try again."); return; }
+    try {
+      await window.storage.set(wsKey("my-dash-user"), trimmed, false);
+      setMyDashUser(trimmed);
+      setDashLoginPassword("");
+    } catch (e) {}
   };
 
   const handleChangeOwnerPassword = async () => {
     setChangeOwnerMsg("");
     if (!changeOwnerNew.trim() || changeOwnerNew.trim().length < 4) { setChangeOwnerMsg("New password must be at least 4 characters."); return; }
-    const ok = await saveAuth({ ...auth, ownerPassword: changeOwnerNew.trim() }, "Owner password changed");
+    const updated = { ...dashboardUsers, [myDashUser]: { ...dashboardUsers[myDashUser], password: changeOwnerNew.trim() } };
+    const ok = await saveDashboardUsers(updated, `Changed Dashboard password for "${myDashUser}"`);
     if (ok) { setChangeOwnerMsg("Password updated."); setChangeOwnerNew(""); } else { setChangeOwnerMsg("Could not save, try again."); }
   };
 
-  const handleSetRecoveryCode = async () => {
-    setRecoveryMsg("");
-    if (!recoveryCodeInput.trim() || recoveryCodeInput.trim().length < 4) { setRecoveryMsg("Recovery code must be at least 4 characters."); return; }
-    const ok = await saveAuth({ ...auth, recoveryCode: recoveryCodeInput.trim() }, "Recovery code updated");
-    if (ok) { setRecoveryMsg("Recovery code saved."); setRecoveryCodeInput(""); } else { setRecoveryMsg("Could not save, try again."); }
+  // ---- Dashboard Team management (owner only, from Users tab → Dashboard) ----
+  const handleAddDashUser = async () => {
+    const trimmed = newDashUserId.trim();
+    if (!trimmed || !newDashUserPassword.trim()) { setDashError("Enter a name and password."); return; }
+    if (dashboardUsers[trimmed]) { setDashError("Someone with that name already exists."); return; }
+    const updated = { ...dashboardUsers, [trimmed]: { password: newDashUserPassword.trim(), role: "member", permissions: newDashUserPerms, locked: false } };
+    const ok = await saveDashboardUsers(updated, `Added Dashboard user "${trimmed}"`);
+    if (ok) { setNewDashUserId(""); setNewDashUserPassword(""); setNewDashUserPerms({}); }
   };
 
-  // Mandatory first-time recovery code setup — shown right after the owner's first successful
-  // login while auth.recoveryCode is still empty. Blocks the dashboard until saved.
-  const handleFirstRunRecoverySave = async () => {
-    setFirstRunRecoveryError("");
-    if (!firstRunRecoveryInput.trim() || firstRunRecoveryInput.trim().length < 4) {
-      setFirstRunRecoveryError("Recovery code must be at least 4 characters.");
-      return;
-    }
-    const ok = await saveAuth({ ...auth, recoveryCode: firstRunRecoveryInput.trim() }, "Recovery code set (first-time setup)");
-    if (ok) { setFirstRunRecoveryInput(""); } else { setFirstRunRecoveryError("Could not save, try again."); }
+  const handleSaveDashUserPerms = async (name, perms) => {
+    const updated = { ...dashboardUsers, [name]: { ...dashboardUsers[name], permissions: perms } };
+    const ok = await saveDashboardUsers(updated, `Updated Dashboard permissions for "${name}"`);
+    if (ok) setEditingDashPermsFor("");
   };
+
+  const handleRemoveDashUser = async (name) => {
+    const updated = { ...dashboardUsers };
+    delete updated[name];
+    await saveDashboardUsers(updated, `Removed Dashboard user "${name}"`);
+  };
+
+  // Which tabs the logged-in Dashboard user can see — owner always sees everything, a regular
+  // Dashboard user only sees what's been explicitly granted in their permissions.
+  const myDashRecord = myDashUser ? dashboardUsers[myDashUser] : null;
+  const canSeeTab = useCallback((key) => (myDashRecord?.role === "owner" ? true : !!myDashRecord?.permissions?.[key]), [myDashRecord]);
+
+  const loggedInDashUserRef = useRef(null);
+  useEffect(() => {
+    setRole(myDashRecord ? (myDashRecord.role === "owner" ? "owner" : "member") : null);
+    if (myDashRecord && myDashUser !== loggedInDashUserRef.current) {
+      loggedInDashUserRef.current = myDashUser;
+      const firstAllowed = myDashRecord.role === "owner" ? "overview" : DASH_TABS.find((t) => myDashRecord.permissions?.[t.key])?.key || "overview";
+      setDashTab(firstAllowed);
+    }
+    if (!myDashRecord) loggedInDashUserRef.current = null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myDashUser, myDashRecord]);
 
   const addEvent = async (type, extra = {}) => {
     if (!myUser) return;
@@ -2363,10 +2442,10 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, initi
           ) : (
             <span className="flex items-center gap-1.5 text-[11px] font-medium text-neutral-500 bg-neutral-900 border border-neutral-800 rounded-full px-2.5 py-1">
               {tab === "track" ? <UsersIcon size={11} /> : <Home size={11} />}
-              {tab === "track" ? "Agent" : "Dashboard"}
+              {tab === "track" ? "Agent User" : "Dashboard User"}
             </span>
           )}
-          {(onSwitchWorkspace || (tab === "track" && myUser) || (tab === "dashboard" && role === "owner")) && (
+          {(onSwitchWorkspace || (tab === "track" && myUser) || (tab === "dashboard" && role)) && (
             <button
               title={backLabel}
               onClick={handleBack}
@@ -3161,7 +3240,9 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, initi
         </div>
       )}
 
-      {/* DASHBOARD LOGIN */}
+      {/* DASHBOARD LOGIN — per-account, owner-managed (no email/verification). First person ever
+          becomes the owner; everyone else needs the owner to add their account first
+          (Users tab → Dashboard). */}
       {tab === "dashboard" && !role && (
         <div className="p-4 sm:p-5">
           <div className="max-w-sm mx-auto pt-8 pb-8 text-center">
@@ -3171,97 +3252,61 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, initi
             >
               <Lock size={20} className="text-emerald-400" />
             </div>
-            <p className="text-sm text-neutral-400 mb-3">Dashboard access</p>
-            {!showForgotPanel ? (
+            {Object.keys(dashboardUsers).length === 0 ? (
               <>
-                <div className="flex flex-col sm:flex-row gap-2">
+                <p className="text-sm text-neutral-400 mb-1">Set up the Dashboard</p>
+                <p className="text-xs text-neutral-600 mb-4">Nobody's set up Dashboard access for this workspace yet. Do it now — you'll be the owner.</p>
+                <div className="text-left space-y-2">
+                  {dashLoginError && <p className="text-xs text-rose-400">{dashLoginError}</p>}
+                  <input value={dashLoginName} onChange={(e) => setDashLoginName(e.target.value)} placeholder="Your name" className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-neutral-500" />
+                  <PasswordInput value={dashLoginPassword} onChange={(e) => setDashLoginPassword(e.target.value)} placeholder="Choose a password" className="bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-neutral-500" />
+                  <button onClick={handleSetupFirstDashOwner} className="w-full bg-neutral-100 text-neutral-900 text-sm font-medium px-4 py-2 rounded-lg">Create owner account</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-neutral-400 mb-3">Dashboard access</p>
+                <div className="text-left space-y-2">
+                  {dashLoginError && <p className="text-xs text-rose-400">{dashLoginError}</p>}
+                  <select value={dashLoginName} onChange={(e) => setDashLoginName(e.target.value)} className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-500">
+                    <option value="">Choose your name...</option>
+                    {Object.keys(dashboardUsers).sort().map((name) => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                  </select>
                   <PasswordInput
-                    value={pwInput}
-                    onChange={(e) => { setPwInput(e.target.value); setPwError(false); }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        if (pwInput === effectiveOwnerPassword) { setRole("owner"); setDashTab("overview"); }
-                        else setPwError(true);
-                      }
-                    }}
+                    value={dashLoginPassword}
+                    onChange={(e) => setDashLoginPassword(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleDashboardLogin()}
                     placeholder="Password"
                     className="bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-neutral-500"
                   />
-                  <button
-                    onClick={() => {
-                      if (pwInput === effectiveOwnerPassword) { setRole("owner"); setDashTab("overview"); }
-                      else setPwError(true);
-                    }}
-                    className="bg-neutral-100 text-neutral-900 text-sm font-medium px-4 py-2 rounded-lg shrink-0"
-                  >
-                    Unlock
-                  </button>
+                  <button onClick={handleDashboardLogin} className="w-full bg-neutral-100 text-neutral-900 text-sm font-medium px-4 py-2 rounded-lg">Log in</button>
                 </div>
-                {pwError && <p className="mt-2 text-xs text-rose-400">Wrong password.</p>}
-                <button onClick={() => setShowForgotPanel(true)} className="mt-4 text-xs text-neutral-500 hover:text-neutral-300 underline">
-                  Forgot owner password?
-                </button>
+                <p className="mt-4 text-[11px] text-neutral-600">Don't see your name? Ask the owner to add you from Users → Dashboard.</p>
               </>
-            ) : (
-              <div className="text-left space-y-2">
-                <p className="text-xs text-neutral-400 flex items-center gap-1.5"><ShieldQuestion size={13} /> Enter your recovery code to set a new owner password</p>
-                {forgotError && <p className="text-xs text-rose-400">{forgotError}</p>}
-                <input value={forgotRecoveryCode} onChange={(e) => setForgotRecoveryCode(e.target.value)} placeholder="Recovery code" className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-neutral-500" />
-                <PasswordInput value={forgotNewPassword} onChange={(e) => setForgotNewPassword(e.target.value)} placeholder="New owner password" className="bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-neutral-500" />
-                <div className="flex gap-2 pt-1">
-                  <button onClick={handleForgotReset} className="flex-1 bg-neutral-100 text-neutral-900 text-sm font-medium px-4 py-2 rounded-lg">Reset password</button>
-                  <button onClick={() => { setShowForgotPanel(false); setForgotError(""); }} className="text-sm text-neutral-400 px-2">Cancel</button>
-                </div>
-              </div>
             )}
           </div>
         </div>
       )}
 
-      {/* MANDATORY FIRST-RUN RECOVERY CODE SETUP — blocks the dashboard until the owner sets one */}
-      {tab === "dashboard" && role === "owner" && !auth.recoveryCode && (
-        <div className="p-4 sm:p-5">
-          <div className="max-w-sm mx-auto py-8 text-center">
-            <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center mx-auto mb-3">
-              <ShieldQuestion size={16} className="text-amber-400" />
-            </div>
-            <p className="text-sm text-neutral-200 font-medium mb-1.5">Set a recovery code before you continue</p>
-            <p className="text-xs text-neutral-500 mb-4">If you ever forget your owner password, this code is the only way to get back in without wiping everyone's data. Choose something you'll remember or write down — not the password itself.</p>
-            {firstRunRecoveryError && <p className="text-xs text-rose-400 mb-2">{firstRunRecoveryError}</p>}
-            <div className="flex flex-col sm:flex-row gap-2">
-              <input
-                value={firstRunRecoveryInput}
-                onChange={(e) => { setFirstRunRecoveryInput(e.target.value); setFirstRunRecoveryError(""); }}
-                onKeyDown={(e) => { if (e.key === "Enter") handleFirstRunRecoverySave(); }}
-                placeholder="Recovery code"
-                className="flex-1 bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-neutral-500"
-              />
-              <button onClick={handleFirstRunRecoverySave} className="bg-neutral-100 text-neutral-900 text-sm font-medium px-4 py-2 rounded-lg shrink-0">
-                Save & continue
-              </button>
-            </div>
-            <p className="mt-4 text-[10px] text-neutral-600">You can change this anytime later from Settings → Dashboard passwords.</p>
-          </div>
-        </div>
-      )}
-
       {/* DASHBOARD */}
-      {tab === "dashboard" && role === "owner" && auth.recoveryCode && (
+      {tab === "dashboard" && role && (
         <div className="p-4 sm:p-5">
           <div className="max-w-4xl mx-auto">
           <div className="flex flex-wrap items-center gap-3 mb-5">
             <div className="flex flex-wrap bg-neutral-900 rounded-lg p-1 gap-1">
               {[
-                { key: "overview", label: "Overview", icon: Home, badge: openIssues.length },
-                role === "owner" && { key: "approvals", label: "Approvals", icon: ShieldQuestion, badge: pendingOtBlocks.length + swapRequests.filter((r) => r.status === "pending").length },
-                role === "owner" && { key: "users", label: "Users", icon: UsersIcon },
-                role === "owner" && { key: "actions", label: "Actions", icon: Zap },
-                { key: "report", label: "Report", icon: BarChart3 },
-                { key: "summary", label: "Summary", icon: CalendarRange },
-                role === "owner" && { key: "schedule", label: "Schedule", icon: LayoutGrid },
-                role === "owner" && { key: "dailytask", label: "Daily Task", icon: StickyNote },
-                role === "owner" && { key: "settings", label: "Settings", icon: SettingsIcon },
-                role === "owner" && { key: "activity", label: "Activity", icon: ActivityIcon },
+                canSeeTab("overview") && { key: "overview", label: "Overview", icon: Home, badge: openIssues.length },
+                canSeeTab("approvals") && { key: "approvals", label: "Approvals", icon: ShieldQuestion, badge: pendingOtBlocks.length + swapRequests.filter((r) => r.status === "pending").length },
+                canSeeTab("users") && { key: "users", label: "Users", icon: UsersIcon },
+                canSeeTab("actions") && { key: "actions", label: "Actions", icon: Zap },
+                canSeeTab("report") && { key: "report", label: "Report", icon: BarChart3 },
+                canSeeTab("summary") && { key: "summary", label: "Summary", icon: CalendarRange },
+                canSeeTab("schedule") && { key: "schedule", label: "Schedule", icon: LayoutGrid },
+                canSeeTab("dailytask") && { key: "dailytask", label: "Daily Task", icon: StickyNote },
+                canSeeTab("settings") && { key: "settings", label: "Settings", icon: SettingsIcon },
+                canSeeTab("activity") && { key: "activity", label: "Activity", icon: ActivityIcon },
               ].filter(Boolean).map((t) => {
                 const Icon = t.icon;
                 return (
@@ -3282,7 +3327,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, initi
             </div>
             <span className="text-[11px] text-neutral-500">{liveCounts.working} working · {liveCounts.onBreak} on break · {liveCounts.onOt} on OT</span>
             <div className="ml-auto flex items-center gap-1">
-              <span className="text-[10px] text-neutral-600 px-2">Owner</span>
+              <span className="text-[10px] text-neutral-600 px-2">{myDashUser} · {role === "owner" ? "Owner" : "Member"}</span>
             </div>
           </div>
 
@@ -3465,7 +3510,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, initi
 
           {/* APPROVALS (owner only) — every action-needed item lives here and nowhere else:
               overtime sessions awaiting a decision, and shift-swap requests. */}
-          {dashTab === "approvals" && role === "owner" && (
+          {dashTab === "approvals" && canSeeTab("approvals") && (
             <div className="max-w-2xl">
               <div className="flex bg-neutral-900 rounded-lg p-1 gap-1 mb-4 w-fit">
                 <button
@@ -3666,8 +3711,19 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, initi
           )}
 
           {/* USERS (owner only) */}
-          {dashTab === "users" && role === "owner" && (
+          {dashTab === "users" && canSeeTab("users") && (
             <div>
+              <div className="flex bg-neutral-900 rounded-lg p-1 gap-1 mb-4 max-w-xs">
+                <button onClick={() => setUsersSubTab("agent")} className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${usersSubTab === "agent" ? "bg-neutral-800 text-neutral-50" : "text-neutral-500"}`}>
+                  Agent User
+                </button>
+                <button onClick={() => setUsersSubTab("dashboard")} className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${usersSubTab === "dashboard" ? "bg-neutral-800 text-neutral-50" : "text-neutral-500"}`}>
+                  Dashboard User
+                </button>
+              </div>
+
+              {usersSubTab === "agent" && (
+              <>
               <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 mb-4 max-w-md">
                 <p className="text-xs text-neutral-500 mb-2">Add a new user</p>
                 <div className="flex flex-col sm:flex-row gap-2 mb-2">
@@ -3890,12 +3946,94 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, initi
                   );
                 })}
               </div>
+              </>
+              )}
+
+              {usersSubTab === "dashboard" && (
+                <>
+                  <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 mb-4 max-w-md">
+                    <p className="text-xs text-neutral-500 mb-2">Add a Dashboard user</p>
+                    <p className="text-[11px] text-neutral-600 mb-3">They'll log in from the Dashboard side (not Agent), and only see the tabs you tick below.</p>
+                    <div className="flex flex-col sm:flex-row gap-2 mb-2">
+                      <input value={newDashUserId} onChange={(e) => setNewDashUserId(e.target.value)} placeholder="Name" className="flex-1 min-w-0 bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-neutral-500" />
+                      <PasswordInput value={newDashUserPassword} onChange={(e) => setNewDashUserPassword(e.target.value)} placeholder="Password" className="bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-neutral-500" />
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 mb-3">
+                      {DASH_TABS.map((t) => (
+                        <button
+                          key={t.key}
+                          onClick={() => setNewDashUserPerms((p) => ({ ...p, [t.key]: !p[t.key] }))}
+                          className={`text-[10px] font-medium px-2 py-1 rounded-full border cursor-pointer hover:border-neutral-600 transition-colors ${
+                            newDashUserPerms[t.key] ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" : "bg-neutral-950 border-neutral-800 text-neutral-600"
+                          }`}
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                    <button onClick={handleAddDashUser} className="w-full flex items-center justify-center gap-1.5 bg-neutral-100 text-neutral-900 text-sm font-medium px-4 py-2 rounded-lg">
+                      <Plus size={14} /> Add Dashboard user
+                    </button>
+                  </div>
+
+                  <div className="space-y-2 max-w-md">
+                    {Object.keys(dashboardUsers).length === 0 && <p className="text-sm text-neutral-600">No Dashboard users yet.</p>}
+                    {Object.entries(dashboardUsers).sort(([a], [b]) => a.localeCompare(b)).map(([name, rec]) => {
+                      const isEditing = editingDashPermsFor === name;
+                      const perms = isEditing ? editingDashPerms : rec.permissions || {};
+                      return (
+                        <div key={name} className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-sm font-medium text-neutral-100 truncate">{name}</span>
+                              <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${rec.role === "owner" ? "bg-emerald-500/10 text-emerald-400" : "bg-neutral-800 text-neutral-400"}`}>
+                                {rec.role === "owner" ? "Owner" : "Member"}
+                              </span>
+                            </div>
+                            {rec.role !== "owner" && (
+                              <div className="flex items-center gap-2 shrink-0">
+                                {!isEditing ? (
+                                  <button onClick={() => { setEditingDashPermsFor(name); setEditingDashPerms(rec.permissions || {}); }} className="text-[11px] font-medium text-sky-400 hover:text-sky-300">
+                                    Edit access
+                                  </button>
+                                ) : (
+                                  <>
+                                    <button onClick={() => handleSaveDashUserPerms(name, editingDashPerms)} className="text-[11px] font-medium text-emerald-400 hover:text-emerald-300">Save</button>
+                                    <button onClick={() => setEditingDashPermsFor("")} className="text-[11px] text-neutral-500 hover:text-neutral-300">Cancel</button>
+                                  </>
+                                )}
+                                <button onClick={() => handleRemoveDashUser(name)} className="text-[11px] font-medium text-rose-400 hover:text-rose-300">Remove</button>
+                              </div>
+                            )}
+                          </div>
+                          {rec.role !== "owner" && (
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                              {DASH_TABS.map((t) => (
+                                <button
+                                  key={t.key}
+                                  disabled={!isEditing}
+                                  onClick={() => setEditingDashPerms((p) => ({ ...p, [t.key]: !p[t.key] }))}
+                                  className={`text-[10px] font-medium px-2 py-1 rounded-full border transition-colors ${
+                                    perms[t.key] ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" : "bg-neutral-900 border-neutral-800 text-neutral-600"
+                                  } ${isEditing ? "cursor-pointer hover:border-neutral-600" : "cursor-default opacity-70"}`}
+                                >
+                                  {t.label}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </div>
           )}
 
           {/* ACTIONS — the owner can force any user directly into Available / Meeting / Task / Finish,
               regardless of what they're currently doing. */}
-          {dashTab === "actions" && role === "owner" && (
+          {dashTab === "actions" && canSeeTab("actions") && (
             <div>
               <p className="text-xs text-neutral-500 mb-3">Force any user's current state directly — useful if someone forgot to press a button, or you need to override remotely.</p>
 
@@ -4470,7 +4608,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, initi
           )}
 
           {/* SCHEDULE (owner only) — a weekly roster: pick a time/label per person per day, or OFF / Annual / Training / Holiday */}
-          {dashTab === "schedule" && role === "owner" && (
+          {dashTab === "schedule" && canSeeTab("schedule") && (
             <div>
               <div className="flex items-center gap-2 mb-4">
                 <button onClick={() => setScheduleWeekOffset((o) => o - 1)} className="p-1.5 rounded-md text-neutral-500 hover:text-neutral-300 hover:bg-neutral-900">
@@ -4727,7 +4865,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, initi
           )}
 
           {/* DAILY TASK (owner only) */}
-          {dashTab === "dailytask" && role === "owner" && (
+          {dashTab === "dailytask" && canSeeTab("dailytask") && (
             <div>
               {/* Recurring tasks — tied to a shift's start time instead of a specific person.
                   Whoever's shift for a given day starts at that time automatically gets the
@@ -4875,7 +5013,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, initi
           )}
 
           {/* SETTINGS (owner only) */}
-          {dashTab === "settings" && role === "owner" && (
+          {dashTab === "settings" && canSeeTab("settings") && (
             <div className="max-w-sm space-y-4">
               <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
                 <p className="text-xs text-neutral-500 mb-2 flex items-center gap-1.5"><LayoutGrid size={13} /> Team schedule</p>
@@ -5034,31 +5172,16 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, initi
               </div>
 
               <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 space-y-4">
-                <p className="text-xs text-neutral-500">Dashboard passwords</p>
-
+                <p className="text-xs text-neutral-500">My Dashboard account</p>
                 <div>
-                  <p className="text-[11px] text-neutral-600 mb-2">Owner password — you're already signed in, so just set a new one</p>
+                  <p className="text-[11px] text-neutral-600 mb-2">Signed in as {myDashUser} — set a new password</p>
                   {changeOwnerMsg && <p className={`text-[11px] mb-1.5 ${changeOwnerMsg === "Password updated." ? "text-emerald-400" : "text-rose-400"}`}>{changeOwnerMsg}</p>}
                   <div className="flex gap-2">
                     <PasswordInput value={changeOwnerNew} onChange={(e) => setChangeOwnerNew(e.target.value)} placeholder="New password" className="bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-1.5 text-xs text-neutral-100 placeholder-neutral-600 outline-none focus:border-neutral-500" />
                     <button onClick={handleChangeOwnerPassword} className="bg-neutral-100 text-neutral-900 text-xs font-medium px-3 py-1.5 rounded-lg shrink-0">Save</button>
                   </div>
                 </div>
-
-                <div className="pt-2 border-t border-neutral-800">
-                  <p className="text-[11px] text-neutral-600 mb-1">Recovery code</p>
-                  {auth.recoveryCode ? (
-                    <p className="text-[10px] text-neutral-600 mb-2">A recovery code is set. Keep it somewhere safe.</p>
-                  ) : (
-                    <p className="text-[10px] text-amber-400 mb-2 flex items-start gap-1"><ShieldQuestion size={12} className="mt-0.5 shrink-0" /> No recovery code set — you won't be able to reset your password if you forget it. Set one now.</p>
-                  )}
-                  {recoveryMsg && <p className="text-[11px] text-emerald-400 mb-1.5">{recoveryMsg}</p>}
-                  <div className="flex gap-2">
-                    <input value={recoveryCodeInput} onChange={(e) => setRecoveryCodeInput(e.target.value)} placeholder="New recovery code" className="flex-1 min-w-0 bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-1.5 text-xs text-neutral-100 placeholder-neutral-600 outline-none focus:border-neutral-500" />
-                    <button onClick={handleSetRecoveryCode} className="bg-neutral-100 text-neutral-900 text-xs font-medium px-3 py-1.5 rounded-lg shrink-0">Save</button>
-                  </div>
-                </div>
-
+                <p className="text-[10px] text-neutral-600 pt-2 border-t border-neutral-800">To add more Dashboard users or change who can see what, go to Users → Dashboard.</p>
               </div>
 
               <div className="bg-neutral-900 border border-rose-900/50 rounded-xl p-4">
@@ -5082,7 +5205,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, initi
           )}
 
           {/* ACTIVITY (owner only) */}
-          {dashTab === "activity" && role === "owner" && (
+          {dashTab === "activity" && canSeeTab("activity") && (
             <div className="max-w-md">
               {audit.length === 0 ? (
                 <div className="py-12 text-center text-neutral-600 text-sm">No activity yet</div>
@@ -5493,6 +5616,7 @@ function WorkspacePendingScreen({ displayName, onCheckAgain, onUseDifferent, onA
 }
 
 function ChooserScreen({ displayName, onPick, onSwitchWorkspace }) {
+  const [confirmSwitch, setConfirmSwitch] = useState(false);
   return (
     <div className="w-full min-h-screen bg-neutral-950 text-neutral-100 flex items-center justify-center p-5" style={{ fontFamily: "system-ui, sans-serif" }}>
       {gatePopStyle}
@@ -5506,7 +5630,7 @@ function ChooserScreen({ displayName, onPick, onSwitchWorkspace }) {
               <UsersIcon size={16} className="text-emerald-400" />
             </div>
             <div>
-              <p className="text-sm font-medium text-neutral-100">Agent</p>
+              <p className="text-sm font-medium text-neutral-100">Agent User</p>
               <p className="text-xs text-neutral-500">Clock in, take a break, log a meeting or task</p>
             </div>
           </button>
@@ -5515,15 +5639,25 @@ function ChooserScreen({ displayName, onPick, onSwitchWorkspace }) {
               <Home size={16} className="text-sky-400" />
             </div>
             <div>
-              <p className="text-sm font-medium text-neutral-100">Dashboard</p>
+              <p className="text-sm font-medium text-neutral-100">Dashboard User</p>
               <p className="text-xs text-neutral-500">Reports, exports, users, and settings</p>
             </div>
           </button>
         </div>
-        {onSwitchWorkspace && (
-          <button onClick={onSwitchWorkspace} className="text-xs text-neutral-600 hover:text-neutral-400">
+        {onSwitchWorkspace && !confirmSwitch && (
+          <button onClick={() => setConfirmSwitch(true)} className="text-xs text-neutral-600 hover:text-neutral-400">
             Not your workspace? Switch
           </button>
+        )}
+        {confirmSwitch && (
+          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 text-left">
+            <p className="text-xs text-neutral-300 mb-1">Leave this workspace?</p>
+            <p className="text-[11px] text-neutral-500 mb-3">You'll need to enter the workspace name again to come back.</p>
+            <div className="flex gap-2">
+              <button onClick={onSwitchWorkspace} className="flex-1 bg-rose-500/10 text-rose-400 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-rose-500/20">Yes, leave</button>
+              <button onClick={() => setConfirmSwitch(false)} className="flex-1 bg-neutral-100 text-neutral-900 text-xs font-medium px-3 py-1.5 rounded-lg">No, stay</button>
+            </div>
+          </div>
         )}
       </div>
     </div>
@@ -5731,5 +5865,5 @@ export default function App() {
   if (!intendedTab) {
     return <ChooserScreen displayName={displayName} onPick={(t) => navigate(t === "track" ? "/agent" : "/dashboard")} onSwitchWorkspace={handleSwitchWorkspace} />;
   }
-  return <Shiftly key={workspaceKey} workspaceName={workspaceKey} workspaceDisplayName={displayName} onSwitchWorkspace={handleSwitchWorkspace} initialTab={intendedTab} lockTab />;
+  return <Shiftly key={workspaceKey} workspaceName={workspaceKey} workspaceDisplayName={displayName} onSwitchWorkspace={handleSwitchWorkspace} onBackToChooser={() => navigate("/")} initialTab={intendedTab} lockTab />;
 }
