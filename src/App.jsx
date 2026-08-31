@@ -1369,21 +1369,6 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
       ? "Choose Agent or Dashboard"
       : "Switch workspace";
 
-  const handleSetupFirstDashOwner = async () => {
-    setDashLoginError("");
-    const trimmed = dashLoginName.trim();
-    if (!trimmed || !dashLoginPassword.trim()) { setDashLoginError("Enter a name and password."); return; }
-    const allPerms = Object.fromEntries(DASH_TABS.map((t) => [t.key, true]));
-    const updated = { [trimmed]: { password: dashLoginPassword.trim(), role: "owner", permissions: allPerms, locked: false } };
-    const ok = await saveDashboardUsers(updated, `Set up Dashboard access — "${trimmed}" is the owner`);
-    if (!ok) { setDashLoginError("Could not save, try again."); return; }
-    try {
-      await window.storage.set(wsKey("my-dash-user"), trimmed, false);
-      setMyDashUser(trimmed);
-      setDashLoginPassword("");
-    } catch (e) {}
-  };
-
   const handleChangeOwnerPassword = async () => {
     setChangeOwnerMsg("");
     if (!changeOwnerNew.trim() || changeOwnerNew.trim().length < 4) { setChangeOwnerMsg("New password must be at least 4 characters."); return; }
@@ -1425,6 +1410,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
   // Dashboard user only sees what's been explicitly granted in their permissions.
   const myDashRecord = myDashUser ? dashboardUsers[myDashUser] : null;
   const canSeeTab = useCallback((key) => (myDashRecord?.role === "owner" ? true : !!myDashRecord?.permissions?.[key]), [myDashRecord]);
+  const canManageDashUsers = myDashRecord?.role === "owner" || !!myDashRecord?.permissions?.manageDashboardUsers;
 
   const loggedInDashUserRef = useRef(null);
   useEffect(() => {
@@ -3253,9 +3239,9 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
         </div>
       )}
 
-      {/* DASHBOARD LOGIN — per-account, owner-managed (no email/verification). First person ever
-          becomes the owner; everyone else needs the owner to add their account first
-          (Users tab → Dashboard). */}
+      {/* DASHBOARD LOGIN — per-account, provisioned by the project owner (never self-service).
+          Everyone needs a login already created for them: the first (owner) account by the project
+          owner from /admin, and any additional accounts by that owner from Users → Dashboard. */}
       {tab === "dashboard" && !role && (
         <div className="p-4 sm:p-5">
           <div className="max-w-sm mx-auto pt-8 pb-8 text-center">
@@ -3267,14 +3253,8 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
             </div>
             {Object.keys(dashboardUsers).length === 0 ? (
               <>
-                <p className="text-sm text-neutral-400 mb-1">Set up the Dashboard</p>
-                <p className="text-xs text-neutral-600 mb-4">Nobody's set up Dashboard access for this workspace yet. Do it now — you'll be the owner.</p>
-                <div className="text-left space-y-2">
-                  {dashLoginError && <p className="text-xs text-rose-400">{dashLoginError}</p>}
-                  <input value={dashLoginName} onChange={(e) => setDashLoginName(e.target.value)} placeholder="Your name" className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-neutral-500" />
-                  <PasswordInput value={dashLoginPassword} onChange={(e) => setDashLoginPassword(e.target.value)} placeholder="Choose a password" className="bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-neutral-500" />
-                  <button onClick={handleSetupFirstDashOwner} className="w-full bg-neutral-100 text-neutral-900 text-sm font-medium px-4 py-2 rounded-lg">Create owner account</button>
-                </div>
+                <p className="text-sm text-neutral-400 mb-1">Dashboard access not set up yet</p>
+                <p className="text-xs text-neutral-600">Nobody's been given a login for this workspace's Dashboard yet. Contact whoever set up this workspace for you.</p>
               </>
             ) : (
               <>
@@ -3731,7 +3711,8 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
                 <button onClick={() => setUsersSubTab("agent")} className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${usersSubTab === "agent" ? "bg-neutral-800 text-neutral-50" : "text-neutral-500"}`}>
                   Agent User
                 </button>
-                <button onClick={() => setUsersSubTab("dashboard")} className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${usersSubTab === "dashboard" ? "bg-neutral-800 text-neutral-50" : "text-neutral-500"}`}>
+                <button onClick={() => setUsersSubTab("dashboard")} className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${usersSubTab === "dashboard" ? "bg-neutral-800 text-neutral-50" : "text-neutral-500"}`}>
+                  {!canManageDashUsers && <Lock size={11} />}
                   Dashboard User
                 </button>
               </div>
@@ -3963,7 +3944,17 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
               </>
               )}
 
-              {usersSubTab === "dashboard" && (
+              {usersSubTab === "dashboard" && !canManageDashUsers && (
+                <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 text-center max-w-md">
+                  <div className="w-10 h-10 rounded-full bg-neutral-800 flex items-center justify-center mx-auto mb-3">
+                    <Lock size={16} className="text-neutral-500" />
+                  </div>
+                  <p className="text-sm text-neutral-300 font-medium mb-1">This is locked</p>
+                  <p className="text-xs text-neutral-500">You don't have permission to manage Dashboard users. Ask the owner to grant it if you need it.</p>
+                </div>
+              )}
+
+              {usersSubTab === "dashboard" && canManageDashUsers && (
                 <>
                   <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 mb-4 max-w-md">
                     <p className="text-xs text-neutral-500 mb-2">Add a Dashboard user</p>
@@ -3972,7 +3963,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
                       <input value={newDashUserId} onChange={(e) => setNewDashUserId(e.target.value)} placeholder="Name" className="flex-1 min-w-0 bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-neutral-500" />
                       <PasswordInput value={newDashUserPassword} onChange={(e) => setNewDashUserPassword(e.target.value)} placeholder="Password" className="bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-neutral-500" />
                     </div>
-                    <div className="flex flex-wrap gap-1.5 mb-3">
+                    <div className="flex flex-wrap gap-1.5 mb-2">
                       {DASH_TABS.map((t) => (
                         <button
                           key={t.key}
@@ -3985,6 +3976,14 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
                         </button>
                       ))}
                     </div>
+                    <button
+                      onClick={() => setNewDashUserPerms((p) => ({ ...p, manageDashboardUsers: !p.manageDashboardUsers }))}
+                      className={`w-full flex items-center gap-1.5 text-[10px] font-medium px-2 py-1.5 rounded-lg border cursor-pointer hover:border-neutral-600 transition-colors mb-3 ${
+                        newDashUserPerms.manageDashboardUsers ? "bg-sky-500/10 border-sky-500/30 text-sky-400" : "bg-neutral-950 border-neutral-800 text-neutral-600"
+                      }`}
+                    >
+                      <Lock size={11} /> Can also manage Dashboard users (add/edit/reset passwords)
+                    </button>
                     <button onClick={handleAddDashUser} className="w-full flex items-center justify-center gap-1.5 bg-neutral-100 text-neutral-900 text-sm font-medium px-4 py-2 rounded-lg">
                       <Plus size={14} /> Add Dashboard user
                     </button>
@@ -4043,6 +4042,15 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
                                   {t.label}
                                 </button>
                               ))}
+                              <button
+                                disabled={!isEditing}
+                                onClick={() => setEditingDashPerms((p) => ({ ...p, manageDashboardUsers: !p.manageDashboardUsers }))}
+                                className={`flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-full border transition-colors ${
+                                  perms.manageDashboardUsers ? "bg-sky-500/10 border-sky-500/30 text-sky-400" : "bg-neutral-900 border-neutral-800 text-neutral-600"
+                                } ${isEditing ? "cursor-pointer hover:border-neutral-600" : "cursor-default opacity-70"}`}
+                              >
+                                <Lock size={10} /> Manage Dashboard users
+                              </button>
                             </div>
                           )}
                         </div>
@@ -4633,6 +4641,22 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
           {/* SCHEDULE (owner only) — a weekly roster: pick a time/label per person per day, or OFF / Annual / Training / Holiday */}
           {dashTab === "schedule" && canSeeTab("schedule") && (
             <div>
+              <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 mb-4 max-w-lg">
+                <p className="text-xs text-neutral-500 mb-2 flex items-center gap-1.5"><LayoutGrid size={13} /> Publish this schedule</p>
+                <p className="text-[11px] text-neutral-600 mb-3">
+                  Employees only ever see the last <span className="text-neutral-400">published</span> version — your edits below stay private until you publish them.
+                </p>
+                {publishMsg && <p className={`text-[11px] mb-2 ${publishMsg.startsWith("Published") ? "text-emerald-400" : publishMsg.startsWith("Unpublished") ? "text-amber-400" : "text-rose-400"}`}>{publishMsg}</p>}
+                <div className="flex gap-2">
+                  <button onClick={publishSchedule} className="flex-1 bg-neutral-100 text-neutral-900 text-sm font-medium px-4 py-2 rounded-lg">
+                    Publish current schedule
+                  </button>
+                  <button onClick={unpublishSchedule} className="text-xs font-medium text-rose-400 hover:text-rose-300 border border-rose-500/30 bg-rose-500/10 rounded-lg px-3">
+                    Unpublish
+                  </button>
+                </div>
+              </div>
+
               <div className="flex items-center gap-2 mb-4">
                 <button onClick={() => setScheduleWeekOffset((o) => o - 1)} className="p-1.5 rounded-md text-neutral-500 hover:text-neutral-300 hover:bg-neutral-900">
                   <ChevronDown size={14} className="rotate-90" />
@@ -5039,22 +5063,6 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
           {dashTab === "settings" && canSeeTab("settings") && (
             <div className="max-w-sm space-y-4">
               <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
-                <p className="text-xs text-neutral-500 mb-2 flex items-center gap-1.5"><LayoutGrid size={13} /> Team schedule</p>
-                <p className="text-[11px] text-neutral-600 mb-3">
-                  Employees only ever see the last <span className="text-neutral-400">published</span> version of the schedule — your edits in the Schedule tab stay private until you publish them here.
-                </p>
-                {publishMsg && <p className={`text-[11px] mb-2 ${publishMsg.startsWith("Published") ? "text-emerald-400" : publishMsg.startsWith("Unpublished") ? "text-amber-400" : "text-rose-400"}`}>{publishMsg}</p>}
-                <div className="flex gap-2">
-                  <button onClick={publishSchedule} className="flex-1 bg-neutral-100 text-neutral-900 text-sm font-medium px-4 py-2 rounded-lg">
-                    Publish current schedule
-                  </button>
-                  <button onClick={unpublishSchedule} className="text-xs font-medium text-rose-400 hover:text-rose-300 border border-rose-500/30 bg-rose-500/10 rounded-lg px-3">
-                    Unpublish
-                  </button>
-                </div>
-              </div>
-
-              <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
                 <p className="text-xs text-neutral-500 mb-2">Break time limit (minutes)</p>
                 <p className="text-[11px] text-neutral-600 mb-3">If a break runs longer than this, break gets locked for the rest of that shift and shows in red.</p>
                 {breakLimitMsg && <p className={`text-[11px] mb-1.5 ${breakLimitMsg === "Saved." ? "text-emerald-400" : "text-rose-400"}`}>{breakLimitMsg}</p>}
@@ -5384,6 +5392,11 @@ function AdminApprovalScreen({ onBack }) {
   const [resetValue, setResetValue] = useState("");
   const [resetMsg, setResetMsg] = useState("");
   useAutoClearMsg(resetMsg, setResetMsg);
+  const [dashCredKey, setDashCredKey] = useState("");
+  const [dashCredName, setDashCredName] = useState("");
+  const [dashCredPassword, setDashCredPassword] = useState("");
+  const [dashCredMsg, setDashCredMsg] = useState("");
+  useAutoClearMsg(dashCredMsg, setDashCredMsg);
   const [confirmDeleteWs, setConfirmDeleteWs] = useState("");
 
   const refresh = useCallback(async () => {
@@ -5447,6 +5460,31 @@ function AdminApprovalScreen({ onBack }) {
     setResetValue("");
     setResetMsg("Password updated.");
     setTimeout(() => setResetMsg(""), 2500);
+  };
+
+  // Creates (or resets) this workspace's Dashboard owner login directly — this is how Dashboard
+  // access gets set up: you provision it here and hand the name/password to the customer. They can
+  // change their own password later from Settings, but they never self-create the first account.
+  const submitDashCred = async (key) => {
+    const trimmed = dashCredName.trim();
+    if (!trimmed || !dashCredPassword || dashCredPassword.length < 4) {
+      setDashCredMsg("Enter a name and a password (min 4 characters).");
+      return;
+    }
+    setBusyKey(key);
+    try {
+      const existingRes = await window.storage.get(`ws:${key}:attendance-dashboard-users`, true).catch(() => null);
+      const existing = existingRes?.value ? JSON.parse(existingRes.value) : {};
+      const allPerms = Object.fromEntries(DASH_TABS.map((t) => [t.key, true]));
+      const updated = { ...existing, [trimmed]: { password: dashCredPassword, role: "owner", permissions: allPerms, locked: false } };
+      const res = await window.storage.set(`ws:${key}:attendance-dashboard-users`, JSON.stringify(updated), true);
+      if (!res) throw new Error("no result");
+      setDashCredMsg("Saved.");
+      setTimeout(() => { setDashCredKey(""); setDashCredName(""); setDashCredPassword(""); setDashCredMsg(""); }, 1200);
+    } catch (e) {
+      setDashCredMsg("Could not save, try again.");
+    }
+    setBusyKey("");
   };
 
   if (!registry) {
@@ -5520,6 +5558,13 @@ function AdminApprovalScreen({ onBack }) {
                   >
                     Reset password
                   </button>
+                  <button
+                    disabled={busyKey === key}
+                    onClick={() => { setDashCredKey(dashCredKey === key ? "" : key); setDashCredName(""); setDashCredPassword(""); setDashCredMsg(""); }}
+                    className="text-xs font-medium text-sky-400 border border-sky-500/30 rounded-md px-2.5 py-1.5 hover:bg-sky-500/10"
+                  >
+                    Dashboard login
+                  </button>
                   {v.locked ? (
                     <button disabled={busyKey === key} onClick={() => act(key, "unlock")} className="flex items-center gap-1 text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-md px-2.5 py-1.5 hover:bg-emerald-500/20">
                       Unlock
@@ -5554,6 +5599,30 @@ function AdminApprovalScreen({ onBack }) {
                 </div>
               )}
               {resetKey === key && resetMsg && <p className="text-[10px] text-emerald-400 mt-1.5">{resetMsg}</p>}
+              {dashCredKey === key && (
+                <div className="mt-2.5 pt-2.5 border-t border-neutral-800">
+                  <p className="text-[11px] text-neutral-500 mb-2">Creates a Dashboard owner login for this workspace — hand these to the customer. Overwrites if that name already exists there.</p>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      value={dashCredName}
+                      onChange={(e) => setDashCredName(e.target.value)}
+                      placeholder="Name"
+                      className="flex-1 min-w-0 bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-1.5 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-sky-500/50"
+                    />
+                    <PasswordInput
+                      value={dashCredPassword}
+                      onChange={(e) => setDashCredPassword(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") submitDashCred(key); }}
+                      placeholder="Password"
+                      className="flex-1 min-w-0 bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-1.5 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-sky-500/50"
+                    />
+                    <button disabled={busyKey === key} onClick={() => submitDashCred(key)} className="text-xs font-medium bg-neutral-100 text-neutral-900 rounded-md px-3 py-1.5 shrink-0">
+                      Save
+                    </button>
+                  </div>
+                  {dashCredMsg && <p className={`text-[10px] mt-1.5 ${dashCredMsg === "Saved." ? "text-emerald-400" : "text-rose-400"}`}>{dashCredMsg}</p>}
+                </div>
+              )}
               {confirmDeleteWs === key && (
                 <div className="mt-2.5 pt-2.5 border-t border-neutral-800 bg-rose-500/10 border border-rose-500/30 rounded-lg p-2.5">
                   <p className="text-[11px] text-rose-300 mb-2">
@@ -5641,7 +5710,7 @@ function WorkspaceNameGate({ mode, setMode, name, setName, password, setPassword
   );
 }
 
-function WorkspacePendingScreen({ displayName, onCheckAgain, onUseDifferent, onAdminTest, checking }) {
+function WorkspacePendingScreen({ displayName, onCheckAgain, onUseDifferent, checking }) {
   return (
     <div className="w-full min-h-screen bg-neutral-950 text-neutral-100 flex items-center justify-center p-5" style={{ fontFamily: "system-ui, sans-serif" }}>
       {gatePopStyle}
@@ -5655,11 +5724,6 @@ function WorkspacePendingScreen({ displayName, onCheckAgain, onUseDifferent, onA
         <button onClick={onUseDifferent} className="w-full text-xs text-neutral-500 hover:text-neutral-300 px-4 py-2">
           Use a different name
         </button>
-        {onAdminTest && (
-          <button onClick={onAdminTest} className="w-full text-[11px] text-violet-400/70 hover:text-violet-300 px-4 py-2 mt-2 border-t border-neutral-900 pt-3">
-            🔧 Open admin approval (testing only — remove before you deploy)
-          </button>
-        )}
       </div>
     </div>
   );
@@ -5729,7 +5793,6 @@ export default function App() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [adminViaShortcut, setAdminViaShortcut] = useState(false);
 
   // Which side of the app this URL points to. "/agent" and "/dashboard" lock Shiftly to that one
   // screen (no switcher pills, clean bookmarkable link); plain "/" shows a small chooser once the
@@ -5742,8 +5805,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // The real way into /admin: the secret in the URL. The "testing only" shortcut on the pending
-    // screen sets phase directly instead (see onAdminTest below) and never goes through this check.
+    // The only way into /admin: the correct secret in the URL.
     if (location.pathname === "/admin" && searchParams.get("admin") === ADMIN_SECRET) {
       setPhase("admin");
       return;
@@ -5879,7 +5941,7 @@ export default function App() {
     return <SplashScreen />;
   }
   if (phase === "admin") {
-    return <AdminApprovalScreen onBack={adminViaShortcut ? () => { setAdminViaShortcut(false); setPhase("pending"); navigate(-1); } : null} />;
+    return <AdminApprovalScreen />;
   }
   if (phase === "gate") {
     return (
@@ -5906,7 +5968,6 @@ export default function App() {
         checking={submitting}
         onCheckAgain={handleCheckAgain}
         onUseDifferent={handleUseDifferent}
-        onAdminTest={() => { setAdminViaShortcut(true); setPhase("admin"); navigate("/admin"); }}
       />
     );
   }
