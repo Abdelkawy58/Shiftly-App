@@ -920,6 +920,9 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
   const [newDashUserPassword, setNewDashUserPassword] = useState("");
   const [newDashUserPerms, setNewDashUserPerms] = useState({});
   const [editingDashPermsFor, setEditingDashPermsFor] = useState("");
+  const [editingDashPwFor, setEditingDashPwFor] = useState("");
+  const [dashPwEditValue, setDashPwEditValue] = useState("");
+  const [activityFilter, setActivityFilter] = useState("");
   const [editingDashPerms, setEditingDashPerms] = useState({});
   const [usersSubTab, setUsersSubTab] = useState("agent"); // 'agent' | 'dashboard' — the two halves of the Users tab
   const [dashTab, setDashTab] = useState("overview");
@@ -1046,6 +1049,8 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
     setImportMsg("");
     setUsersSubTab("agent");
     setEditingDashPermsFor("");
+    setEditingDashPwFor("");
+    setActivityFilter("");
     setNewDashUserPerms({});
   }, []);
 
@@ -1228,7 +1233,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
   };
 
   const addAudit = async (text) => {
-    const entry = { id: Date.now() + "-" + Math.random().toString(36).slice(2), timestamp: Date.now(), text };
+    const entry = { id: Date.now() + "-" + Math.random().toString(36).slice(2), timestamp: Date.now(), text, actor: myDashUser || "" };
     const updated = [entry, ...audit].slice(0, 200);
     try {
       await window.storage.set(wsKey("attendance-audit"), JSON.stringify(updated), true);
@@ -1320,13 +1325,14 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
 
   const handleDashboardLogin = async () => {
     setDashLoginError("");
-    if (!dashLoginName) { setDashLoginError("Choose your name."); return; }
-    const record = dashboardUsers[dashLoginName];
-    if (!record) { setDashLoginError("That account no longer exists."); return; }
-    if (record.password !== dashLoginPassword) { setDashLoginError("Wrong password."); return; }
+    const typed = dashLoginName.trim();
+    if (!typed) { setDashLoginError("Enter your name."); return; }
+    const matchKey = Object.keys(dashboardUsers).find((k) => k.toLowerCase() === typed.toLowerCase());
+    const record = matchKey ? dashboardUsers[matchKey] : null;
+    if (!record || record.password !== dashLoginPassword) { setDashLoginError("Wrong name or password."); return; }
     try {
-      await window.storage.set(wsKey("my-dash-user"), dashLoginName, false);
-      setMyDashUser(dashLoginName);
+      await window.storage.set(wsKey("my-dash-user"), matchKey, false);
+      setMyDashUser(matchKey);
       setDashLoginPassword("");
     } catch (e) {
       setDashLoginError("Could not log in, try again.");
@@ -1400,6 +1406,13 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
     const updated = { ...dashboardUsers, [name]: { ...dashboardUsers[name], permissions: perms } };
     const ok = await saveDashboardUsers(updated, `Updated Dashboard permissions for "${name}"`);
     if (ok) setEditingDashPermsFor("");
+  };
+
+  const handleResetDashUserPassword = async (name, newPw) => {
+    if (!newPw.trim()) return;
+    const updated = { ...dashboardUsers, [name]: { ...dashboardUsers[name], password: newPw.trim() } };
+    const ok = await saveDashboardUsers(updated, `Reset Dashboard password for "${name}"`);
+    if (ok) { setEditingDashPwFor(""); setDashPwEditValue(""); }
   };
 
   const handleRemoveDashUser = async (name) => {
@@ -3268,12 +3281,13 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
                 <p className="text-sm text-neutral-400 mb-3">Dashboard access</p>
                 <div className="text-left space-y-2">
                   {dashLoginError && <p className="text-xs text-rose-400">{dashLoginError}</p>}
-                  <select value={dashLoginName} onChange={(e) => setDashLoginName(e.target.value)} className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-500">
-                    <option value="">Choose your name...</option>
-                    {Object.keys(dashboardUsers).sort().map((name) => (
-                      <option key={name} value={name}>{name}</option>
-                    ))}
-                  </select>
+                  <input
+                    value={dashLoginName}
+                    onChange={(e) => setDashLoginName(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleDashboardLogin()}
+                    placeholder="Your name"
+                    className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-neutral-500"
+                  />
                   <PasswordInput
                     value={dashLoginPassword}
                     onChange={(e) => setDashLoginPassword(e.target.value)}
@@ -3283,7 +3297,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
                   />
                   <button onClick={handleDashboardLogin} className="w-full bg-neutral-100 text-neutral-900 text-sm font-medium px-4 py-2 rounded-lg">Log in</button>
                 </div>
-                <p className="mt-4 text-[11px] text-neutral-600">Don't see your name? Ask the owner to add you from Users → Dashboard.</p>
+                <p className="mt-4 text-[11px] text-neutral-600">Don't have access yet? Ask the owner to add you from Users → Dashboard.</p>
               </>
             )}
           </div>
@@ -4002,10 +4016,19 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
                                     <button onClick={() => setEditingDashPermsFor("")} className="text-[11px] text-neutral-500 hover:text-neutral-300">Cancel</button>
                                   </>
                                 )}
+                                <button onClick={() => { setEditingDashPwFor(editingDashPwFor === name ? "" : name); setDashPwEditValue(""); }} className="text-[11px] font-medium text-amber-400 hover:text-amber-300">
+                                  Reset password
+                                </button>
                                 <button onClick={() => handleRemoveDashUser(name)} className="text-[11px] font-medium text-rose-400 hover:text-rose-300">Remove</button>
                               </div>
                             )}
                           </div>
+                          {editingDashPwFor === name && (
+                            <div className="flex gap-2 mt-2 mb-1">
+                              <PasswordInput value={dashPwEditValue} onChange={(e) => setDashPwEditValue(e.target.value)} placeholder="New password" className="flex-1 min-w-0 bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-1.5 text-xs text-neutral-100 placeholder-neutral-600 outline-none focus:border-neutral-500" />
+                              <button onClick={() => handleResetDashUserPassword(name, dashPwEditValue)} className="bg-neutral-100 text-neutral-900 text-xs font-medium px-3 py-1.5 rounded-lg shrink-0">Save</button>
+                            </div>
+                          )}
                           {rec.role !== "owner" && (
                             <div className="flex flex-wrap gap-1.5 mt-2">
                               {DASH_TABS.map((t) => (
@@ -5207,18 +5230,45 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
           {/* ACTIVITY (owner only) */}
           {dashTab === "activity" && canSeeTab("activity") && (
             <div className="max-w-md">
-              {audit.length === 0 ? (
-                <div className="py-12 text-center text-neutral-600 text-sm">No activity yet</div>
-              ) : (
-                <div className="space-y-1.5">
-                  {audit.map((a) => (
-                    <div key={a.id} className="flex items-center justify-between text-xs bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2">
-                      <span className="text-neutral-300">{a.text}</span>
-                      <span className="text-neutral-600 font-mono shrink-0 ml-2">{fmtTime(a.timestamp)}</span>
-                    </div>
+              <div className="relative mb-3">
+                <input
+                  list="activity-actors"
+                  value={activityFilter}
+                  onChange={(e) => setActivityFilter(e.target.value)}
+                  placeholder="Filter by who did it — type or pick a name..."
+                  className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-neutral-500"
+                />
+                <datalist id="activity-actors">
+                  {Array.from(new Set(audit.map((a) => a.actor).filter(Boolean))).sort().map((name) => (
+                    <option key={name} value={name} />
                   ))}
-                </div>
-              )}
+                </datalist>
+                {activityFilter && (
+                  <button onClick={() => setActivityFilter("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300">
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+              {(() => {
+                const filtered = activityFilter.trim()
+                  ? audit.filter((a) => (a.actor || "").toLowerCase().includes(activityFilter.trim().toLowerCase()))
+                  : audit;
+                return filtered.length === 0 ? (
+                  <div className="py-12 text-center text-neutral-600 text-sm">{activityFilter ? `No activity from "${activityFilter}"` : "No activity yet"}</div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {filtered.map((a) => (
+                      <div key={a.id} className="flex items-center justify-between gap-2 text-xs bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2">
+                        <div className="min-w-0">
+                          <span className="text-neutral-300">{a.text}</span>
+                          {a.actor && <span className="text-sky-400"> — {a.actor}</span>}
+                        </div>
+                        <span className="text-neutral-600 font-mono shrink-0 whitespace-nowrap">{fmtDateLabel(todayKey(new Date(a.timestamp)))} {fmtTime(a.timestamp)}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
           )}
           </div>
