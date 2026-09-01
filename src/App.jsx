@@ -3589,6 +3589,15 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
                                       applySwapDates(updatedSchedule);
                                       const ok = await saveSchedule(updatedSchedule);
                                       if (!ok) { setDashError("Could not update the schedule, try again."); return; }
+                                      // A swap should take effect immediately for the people involved — apply the
+                                      // same change directly to what's published, without touching any other
+                                      // unrelated draft edits the owner might have in progress.
+                                      const updatedPublished = { ...(publishedSchedule || {}) };
+                                      applySwapDates(updatedPublished);
+                                      try {
+                                        const res2 = await window.storage.set(wsKey("attendance-schedule-published"), JSON.stringify(updatedPublished), true);
+                                        if (res2) setPublishedSchedule(updatedPublished);
+                                      } catch (e) {}
                                       await saveSwapRequests(swapRequests.map((x) => (x.id === r.id ? { ...x, status: "approved" } : x)));
                                       addAudit(`Approved shift swap between "${r.fromName}" and "${r.toName}" for ${r.dates.map((d) => fmtDateLabel(d)).join(" and ")}`);
                                     }}
@@ -4758,16 +4767,30 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
                       Editing <span className="text-neutral-300 font-medium">{ename}</span> — {fmtDateLabel(edate)}
                     </p>
                     <div className="flex flex-wrap gap-1.5 mb-3">
-                      {Object.entries(SCHEDULE_STATUSES).map(([key, s]) => (
-                        <button
-                          key={key}
-                          onClick={() => applyEntry({ kind: "status", status: key })}
-                          className={`text-xs font-medium px-3 py-1.5 rounded-full ${s.bg} ${s.text}`}
-                        >
-                          {s.label}
-                        </button>
-                      ))}
+                      {Object.entries(SCHEDULE_STATUSES).map(([key, s]) => {
+                        const isOff = key === "off";
+                        const alreadyOffThisCell = schedule[editingCell]?.kind === "status" && schedule[editingCell]?.status === "off";
+                        const wouldExceedOffCap = isOff && !alreadyOffThisCell && getOffDates(ename, edate).length >= 2;
+                        return (
+                          <button
+                            key={key}
+                            disabled={wouldExceedOffCap}
+                            onClick={() => applyEntry({ kind: "status", status: key })}
+                            title={wouldExceedOffCap ? `${ename} already has 2 OFF days — remove one first` : undefined}
+                            className={`text-xs font-medium px-3 py-1.5 rounded-full ${s.bg} ${s.text} ${wouldExceedOffCap ? "opacity-30 cursor-not-allowed" : ""}`}
+                          >
+                            {s.label}
+                          </button>
+                        );
+                      })}
                     </div>
+                    {(() => {
+                      const alreadyOffThisCell = schedule[editingCell]?.kind === "status" && schedule[editingCell]?.status === "off";
+                      const offCount = getOffDates(ename, edate).length;
+                      return !alreadyOffThisCell && offCount >= 2 ? (
+                        <p className="text-[11px] text-amber-400 mb-2 flex items-center gap-1"><AlertTriangle size={11} /> {ename} already has 2 OFF days — remove one before adding another.</p>
+                      ) : null;
+                    })()}
                     <p className="text-[10px] text-neutral-600 mb-1.5">Or pick a custom time:</p>
                     <div className="flex flex-wrap gap-2 mb-3">
                       <TimePickerButton value={cellTimeInput} onConfirm={setCellTimeInput} direction="up" />
