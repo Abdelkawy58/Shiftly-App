@@ -3589,15 +3589,6 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
                                       applySwapDates(updatedSchedule);
                                       const ok = await saveSchedule(updatedSchedule);
                                       if (!ok) { setDashError("Could not update the schedule, try again."); return; }
-                                      // A swap should take effect immediately for the people involved — apply the
-                                      // same change directly to what's published, without touching any other
-                                      // unrelated draft edits the owner might have in progress.
-                                      const updatedPublished = { ...(publishedSchedule || {}) };
-                                      applySwapDates(updatedPublished);
-                                      try {
-                                        const res2 = await window.storage.set(wsKey("attendance-schedule-published"), JSON.stringify(updatedPublished), true);
-                                        if (res2) setPublishedSchedule(updatedPublished);
-                                      } catch (e) {}
                                       await saveSwapRequests(swapRequests.map((x) => (x.id === r.id ? { ...x, status: "approved" } : x)));
                                       addAudit(`Approved shift swap between "${r.fromName}" and "${r.toName}" for ${r.dates.map((d) => fmtDateLabel(d)).join(" and ")}`);
                                     }}
@@ -4767,30 +4758,16 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
                       Editing <span className="text-neutral-300 font-medium">{ename}</span> — {fmtDateLabel(edate)}
                     </p>
                     <div className="flex flex-wrap gap-1.5 mb-3">
-                      {Object.entries(SCHEDULE_STATUSES).map(([key, s]) => {
-                        const isOff = key === "off";
-                        const alreadyOffThisCell = schedule[editingCell]?.kind === "status" && schedule[editingCell]?.status === "off";
-                        const wouldExceedOffCap = isOff && !alreadyOffThisCell && getOffDates(ename, edate).length >= 2;
-                        return (
-                          <button
-                            key={key}
-                            disabled={wouldExceedOffCap}
-                            onClick={() => applyEntry({ kind: "status", status: key })}
-                            title={wouldExceedOffCap ? `${ename} already has 2 OFF days — remove one first` : undefined}
-                            className={`text-xs font-medium px-3 py-1.5 rounded-full ${s.bg} ${s.text} ${wouldExceedOffCap ? "opacity-30 cursor-not-allowed" : ""}`}
-                          >
-                            {s.label}
-                          </button>
-                        );
-                      })}
+                      {Object.entries(SCHEDULE_STATUSES).map(([key, s]) => (
+                        <button
+                          key={key}
+                          onClick={() => applyEntry({ kind: "status", status: key })}
+                          className={`text-xs font-medium px-3 py-1.5 rounded-full ${s.bg} ${s.text}`}
+                        >
+                          {s.label}
+                        </button>
+                      ))}
                     </div>
-                    {(() => {
-                      const alreadyOffThisCell = schedule[editingCell]?.kind === "status" && schedule[editingCell]?.status === "off";
-                      const offCount = getOffDates(ename, edate).length;
-                      return !alreadyOffThisCell && offCount >= 2 ? (
-                        <p className="text-[11px] text-amber-400 mb-2 flex items-center gap-1"><AlertTriangle size={11} /> {ename} already has 2 OFF days — remove one before adding another.</p>
-                      ) : null;
-                    })()}
                     <p className="text-[10px] text-neutral-600 mb-1.5">Or pick a custom time:</p>
                     <div className="flex flex-wrap gap-2 mb-3">
                       <TimePickerButton value={cellTimeInput} onConfirm={setCellTimeInput} direction="up" />
@@ -5261,29 +5238,33 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
           {/* ACTIVITY (owner only) */}
           {dashTab === "activity" && canSeeTab("activity") && (
             <div className="max-w-md">
-              <div className="relative mb-3">
-                <input
-                  list="activity-actors"
-                  value={activityFilter}
-                  onChange={(e) => setActivityFilter(e.target.value)}
-                  placeholder="Filter by who did it — type or pick a name..."
-                  className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-neutral-500"
-                />
-                <datalist id="activity-actors">
-                  {Array.from(new Set(audit.map((a) => a.actor).filter(Boolean))).sort().map((name) => (
-                    <option key={name} value={name} />
-                  ))}
-                </datalist>
-                {activityFilter && (
-                  <button onClick={() => setActivityFilter("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300">
-                    <X size={14} />
-                  </button>
-                )}
-              </div>
+              {role === "owner" && (
+                <div className="relative mb-3">
+                  <input
+                    list="activity-actors"
+                    value={activityFilter}
+                    onChange={(e) => setActivityFilter(e.target.value)}
+                    placeholder="Filter by who did it — type or pick a name..."
+                    className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-neutral-500"
+                  />
+                  <datalist id="activity-actors">
+                    {Array.from(new Set(audit.map((a) => a.actor).filter(Boolean))).sort().map((name) => (
+                      <option key={name} value={name} />
+                    ))}
+                  </datalist>
+                  {activityFilter && (
+                    <button onClick={() => setActivityFilter("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300">
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+              )}
+              {role !== "owner" && <p className="text-[11px] text-neutral-600 mb-3">Showing your own activity only.</p>}
               {(() => {
-                const filtered = activityFilter.trim()
-                  ? audit.filter((a) => (a.actor || "").toLowerCase().includes(activityFilter.trim().toLowerCase()))
-                  : audit;
+                const base = role === "owner" ? audit : audit.filter((a) => a.actor === myDashUser);
+                const filtered = role === "owner" && activityFilter.trim()
+                  ? base.filter((a) => (a.actor || "").toLowerCase().includes(activityFilter.trim().toLowerCase()))
+                  : base;
                 return filtered.length === 0 ? (
                   <div className="py-12 text-center text-neutral-600 text-sm">{activityFilter ? `No activity from "${activityFilter}"` : "No activity yet"}</div>
                 ) : (
@@ -5292,7 +5273,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
                       <div key={a.id} className="flex items-center justify-between gap-2 text-xs bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2">
                         <div className="min-w-0">
                           <span className="text-neutral-300">{a.text}</span>
-                          {a.actor && <span className="text-sky-400"> — {a.actor}</span>}
+                          {role === "owner" && a.actor && <span className="text-sky-400"> — {a.actor}</span>}
                         </div>
                         <span className="text-neutral-600 font-mono shrink-0 whitespace-nowrap">{fmtDateLabel(todayKey(new Date(a.timestamp)))} {fmtTime(a.timestamp)}</span>
                       </div>
@@ -5421,10 +5402,44 @@ function AdminApprovalScreen({ onBack }) {
   const [dashCredMsg, setDashCredMsg] = useState("");
   useAutoClearMsg(dashCredMsg, setDashCredMsg);
   const [confirmDeleteWs, setConfirmDeleteWs] = useState("");
+  const [newWsName, setNewWsName] = useState("");
+  const [newWsPassword, setNewWsPassword] = useState("");
+  const [newWsDashName, setNewWsDashName] = useState("");
+  const [newWsDashPassword, setNewWsDashPassword] = useState("");
+  const [newWsMsg, setNewWsMsg] = useState("");
+  const [newWsSubmitting, setNewWsSubmitting] = useState(false);
+  useAutoClearMsg(newWsMsg, setNewWsMsg, 4000);
 
   const refresh = useCallback(async () => {
     setRegistry(await loadRegistry());
   }, []);
+
+  const handleCreateWorkspace = async () => {
+    setNewWsMsg("");
+    const norm = normalizeWorkspaceName(newWsName);
+    if (norm.length < 3) { setNewWsMsg("Dashboard name must be at least 3 characters."); return; }
+    if (!newWsPassword || newWsPassword.length < 4) { setNewWsMsg("Workspace password must be at least 4 characters."); return; }
+    if ((newWsDashName.trim() && !newWsDashPassword) || (!newWsDashName.trim() && newWsDashPassword)) {
+      setNewWsMsg("Fill in both the Dashboard owner name and password, or leave both empty.");
+      return;
+    }
+    if (newWsDashName.trim() && newWsDashPassword.length < 4) { setNewWsMsg("Dashboard owner password must be at least 4 characters."); return; }
+    setNewWsSubmitting(true);
+    const reg = await loadRegistry();
+    if (reg[norm]) { setNewWsMsg("That name is already taken. Choose another."); setNewWsSubmitting(false); return; }
+    const updated = { ...reg, [norm]: { displayName: newWsName.trim(), password: newWsPassword, status: "approved", createdAt: Date.now() } };
+    const res = await saveRegistry(updated);
+    if (!res) { setNewWsMsg("Could not create, try again."); setNewWsSubmitting(false); return; }
+    setRegistry(updated);
+    if (newWsDashName.trim() && newWsDashPassword) {
+      const allPerms = Object.fromEntries(DASH_TABS.map((t) => [t.key, true]));
+      const dashUsers = { [newWsDashName.trim()]: { password: newWsDashPassword, role: "owner", permissions: allPerms, locked: false } };
+      await window.storage.set(`ws:${norm}:attendance-dashboard-users`, JSON.stringify(dashUsers), true).catch(() => {});
+    }
+    setNewWsMsg(`Created "${norm}" — hand the customer the Dashboard name and password${newWsDashName.trim() ? ", plus their Dashboard login" : ""}.`);
+    setNewWsName(""); setNewWsPassword(""); setNewWsDashName(""); setNewWsDashPassword("");
+    setNewWsSubmitting(false);
+  };
 
   useEffect(() => {
     refresh();
@@ -5539,26 +5554,47 @@ function AdminApprovalScreen({ onBack }) {
           </div>
         </div>
 
-        <p className="text-xs text-neutral-500 mb-2">Pending requests ({pending.length})</p>
-        <div className="space-y-2 mb-6">
-          {pending.length === 0 && <p className="text-sm text-neutral-600">No pending requests.</p>}
-          {pending.map(([key, v]) => (
-            <div key={key} className="flex items-center justify-between bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2.5">
-              <div>
-                <p className="text-sm text-neutral-200">{v.displayName || key}</p>
-                <p className="text-[10px] text-neutral-600">requested {v.createdAt ? new Date(v.createdAt).toLocaleString() : ""}</p>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <button disabled={busyKey === key} onClick={() => act(key, "approve")} className="flex items-center gap-1 text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-md px-2.5 py-1.5 hover:bg-emerald-500/20">
-                  <Check size={13} /> Approve
-                </button>
-                <button disabled={busyKey === key} onClick={() => act(key, "reject")} className="flex items-center gap-1 text-xs font-medium bg-rose-500/10 text-rose-400 border border-rose-500/30 rounded-md px-2.5 py-1.5 hover:bg-rose-500/20">
-                  <X size={13} /> Reject
-                </button>
-              </div>
-            </div>
-          ))}
+        <div className="bg-neutral-900 border border-violet-500/30 rounded-xl p-4 mb-6">
+          <p className="text-xs text-neutral-300 font-medium mb-1 flex items-center gap-1.5"><Plus size={13} className="text-violet-400" /> Create a new Dashboard</p>
+          <p className="text-[11px] text-neutral-600 mb-3">Creates it already approved — no request or waiting. Optionally set up the Dashboard owner login in the same step, then hand everything to the customer.</p>
+          {newWsMsg && <p className={`text-[11px] mb-2 ${newWsMsg.startsWith("Created") ? "text-emerald-400" : "text-rose-400"}`}>{newWsMsg}</p>}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+            <input value={newWsName} onChange={(e) => setNewWsName(e.target.value)} placeholder="Dashboard name" className="bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-violet-500/50" />
+            <PasswordInput value={newWsPassword} onChange={(e) => setNewWsPassword(e.target.value)} placeholder="Workspace password" className="bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-violet-500/50" />
+          </div>
+          <p className="text-[10px] text-neutral-600 mb-1.5">Dashboard owner login (optional — you can also add this later per-workspace below)</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
+            <input value={newWsDashName} onChange={(e) => setNewWsDashName(e.target.value)} placeholder="Owner name" className="bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-sky-500/50" />
+            <PasswordInput value={newWsDashPassword} onChange={(e) => setNewWsDashPassword(e.target.value)} placeholder="Owner password" className="bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-sky-500/50" />
+          </div>
+          <button disabled={newWsSubmitting} onClick={handleCreateWorkspace} className="w-full bg-neutral-100 text-neutral-900 text-sm font-medium px-4 py-2 rounded-lg disabled:opacity-50">
+            {newWsSubmitting ? "Creating..." : "Create Dashboard"}
+          </button>
         </div>
+
+        {pending.length > 0 && (
+          <>
+            <p className="text-xs text-neutral-500 mb-2">Pending requests ({pending.length})</p>
+            <div className="space-y-2 mb-6">
+              {pending.map(([key, v]) => (
+                <div key={key} className="flex items-center justify-between bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2.5">
+                  <div>
+                    <p className="text-sm text-neutral-200">{v.displayName || key}</p>
+                    <p className="text-[10px] text-neutral-600">requested {v.createdAt ? new Date(v.createdAt).toLocaleString() : ""}</p>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button disabled={busyKey === key} onClick={() => act(key, "approve")} className="flex items-center gap-1 text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-md px-2.5 py-1.5 hover:bg-emerald-500/20">
+                      <Check size={13} /> Approve
+                    </button>
+                    <button disabled={busyKey === key} onClick={() => act(key, "reject")} className="flex items-center gap-1 text-xs font-medium bg-rose-500/10 text-rose-400 border border-rose-500/30 rounded-md px-2.5 py-1.5 hover:bg-rose-500/20">
+                      <X size={13} /> Reject
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
 
         <p className="text-xs text-neutral-500 mb-2">Approved Dashboards ({approved.length})</p>
         <div className="space-y-2">
@@ -5669,8 +5705,7 @@ function AdminApprovalScreen({ onBack }) {
   );
 }
 
-function WorkspaceNameGate({ mode, setMode, name, setName, password, setPassword, confirmPassword, setConfirmPassword, error, submitting, onEnter, onCreate }) {
-  const submit = () => (mode === "enter" ? onEnter() : onCreate());
+function WorkspaceNameGate({ name, setName, password, setPassword, error, submitting, onEnter }) {
   return (
     <div className="w-full min-h-screen bg-neutral-950 text-neutral-100 flex items-center justify-center p-5" style={{ fontFamily: "system-ui, sans-serif" }}>
       {gatePopStyle}
@@ -5678,21 +5713,6 @@ function WorkspaceNameGate({ mode, setMode, name, setName, password, setPassword
         <GateLogo />
         <h1 className="text-lg font-bold text-neutral-50 mb-1">Enter Your Dashboard Name</h1>
         <p className="text-sm text-neutral-500 mb-6">This keeps your team's attendance data separate and private.</p>
-
-        <div className="flex bg-neutral-900 rounded-lg p-1 gap-1 mb-4">
-          <button
-            onClick={() => setMode("enter")}
-            className={`flex-1 text-xs font-medium px-3 py-1.5 rounded-md transition-colors ${mode === "enter" ? "bg-neutral-800 text-neutral-50" : "text-neutral-500"}`}
-          >
-            I already have one
-          </button>
-          <button
-            onClick={() => setMode("create")}
-            className={`flex-1 text-xs font-medium px-3 py-1.5 rounded-md transition-colors ${mode === "create" ? "bg-neutral-800 text-neutral-50" : "text-neutral-500"}`}
-          >
-            Set up a new one
-          </button>
-        </div>
 
         {error && <p className="text-xs text-rose-400 mb-3">{error}</p>}
 
@@ -5706,28 +5726,16 @@ function WorkspaceNameGate({ mode, setMode, name, setName, password, setPassword
           <PasswordInput
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && mode === "enter") submit(); }}
-            placeholder={mode === "enter" ? "Password" : "Choose a password"}
+            onKeyDown={(e) => { if (e.key === "Enter") onEnter(); }}
+            placeholder="Password"
             className="bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2.5 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-violet-500/50 text-center"
           />
-          {mode === "create" && (
-            <PasswordInput
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
-              placeholder="Confirm password"
-              className="bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2.5 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-violet-500/50 text-center"
-            />
-          )}
         </div>
 
-        <button onClick={submit} disabled={submitting} className="w-full bg-neutral-100 text-neutral-900 text-sm font-medium px-4 py-2.5 rounded-lg disabled:opacity-50">
-          {mode === "enter" ? "Enter" : "Request this Dashboard"}
+        <button onClick={onEnter} disabled={submitting} className="w-full bg-neutral-100 text-neutral-900 text-sm font-medium px-4 py-2.5 rounded-lg disabled:opacity-50">
+          Enter
         </button>
-
-        {mode === "create" && (
-          <p className="text-[10px] text-neutral-600 mt-3">New Dashboards need approval before they can be used. You'll see a waiting screen until then.</p>
-        )}
+        <p className="text-[10px] text-neutral-600 mt-3">Don't have a Dashboard yet? Contact whoever set this up for you.</p>
       </div>
     </div>
   );
@@ -5810,10 +5818,8 @@ export default function App() {
   const [showSplash, setShowSplash] = useState(true);
   const [workspaceKey, setWorkspaceKey] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [mode, setMode] = useState("enter");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -5869,7 +5875,6 @@ export default function App() {
   const resetGateFields = () => {
     setName("");
     setPassword("");
-    setConfirmPassword("");
     setError("");
   };
 
@@ -5903,33 +5908,6 @@ export default function App() {
     setSubmitting(false);
   };
 
-  const handleCreate = async () => {
-    setError("");
-    const norm = normalizeWorkspaceName(name);
-    if (norm.length < 3) { setError("Dashboard name must be at least 3 characters."); return; }
-    if (!password || password.length < 4) { setError("Password must be at least 4 characters."); return; }
-    if (password !== confirmPassword) { setError("Passwords don't match."); return; }
-    setSubmitting(true);
-    const reg = await loadRegistry();
-    if (reg[norm]) {
-      setError("That name is already taken. Choose another.");
-      setSubmitting(false);
-      return;
-    }
-    const updated = { ...reg, [norm]: { displayName: name.trim(), password, status: "pending", createdAt: Date.now() } };
-    const res = await saveRegistry(updated);
-    if (!res) {
-      setError("Could not submit, try again.");
-      setSubmitting(false);
-      return;
-    }
-    safeSetLocal("workspace-name", norm);
-    setWorkspaceKey(norm);
-    setDisplayName(name.trim());
-    setPhase("pending");
-    setSubmitting(false);
-  };
-
   const handleCheckAgain = async () => {
     setSubmitting(true);
     const reg = await loadRegistry();
@@ -5947,7 +5925,6 @@ export default function App() {
   const handleUseDifferent = () => {
     safeRemoveLocal("workspace-name");
     resetGateFields();
-    setMode("enter");
     setPhase("gate");
   };
 
@@ -5955,7 +5932,6 @@ export default function App() {
     safeRemoveLocal("workspace-name");
     setWorkspaceKey("");
     resetGateFields();
-    setMode("enter");
     setPhase("gate");
     navigate("/");
   };
@@ -5969,18 +5945,13 @@ export default function App() {
   if (phase === "gate") {
     return (
       <WorkspaceNameGate
-        mode={mode}
-        setMode={setMode}
         name={name}
         setName={setName}
         password={password}
         setPassword={setPassword}
-        confirmPassword={confirmPassword}
-        setConfirmPassword={setConfirmPassword}
         error={error}
         submitting={submitting}
         onEnter={handleEnter}
-        onCreate={handleCreate}
       />
     );
   }
