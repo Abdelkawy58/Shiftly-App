@@ -852,7 +852,7 @@ function downloadCSV(csv, filename) {
   URL.revokeObjectURL(url);
 }
 
-// "Saved."/error confirmations should acknowledge the action, then get out of the way — a real app doesn't
+// "Saved"/error confirmations should acknowledge the action, then get out of the way — a real app doesn't
 // leave stray status text sitting on screen forever. This clears the message a few seconds after it's set.
 function useAutoClearMsg(value, setter, delayMs = 2500) {
   useEffect(() => {
@@ -969,7 +969,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
   const [changeOwnerNew, setChangeOwnerNew] = useState("");
   const [changeOwnerMsg, setChangeOwnerMsg] = useState("");
 
-  // Every "Saved." / error confirmation in Settings clears itself a few seconds after it appears.
+  // Every "Saved" / error confirmation in Settings clears itself a few seconds after it appears.
   useAutoClearMsg(publishMsg, setPublishMsg);
   useAutoClearMsg(importMsg, setImportMsg);
   useAutoClearMsg(otCapHoursMsg, setOtCapHoursMsg);
@@ -1253,7 +1253,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
       if (auditText) addAudit(auditText);
       return true;
     } catch (e) {
-      setDashError("Could not save, try again.");
+      setDashError("Could not save, try again");
       return false;
     }
   };
@@ -1267,7 +1267,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
       if (auditText) addAudit(auditText);
       return true;
     } catch (e) {
-      setDashError("Could not save, try again.");
+      setDashError("Could not save, try again");
       return false;
     }
   };
@@ -1281,7 +1281,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
       if (auditText) addAudit(auditText);
       return true;
     } catch (e) {
-      setDashError("Could not save, try again.");
+      setDashError("Could not save, try again");
       return false;
     }
   };
@@ -1300,17 +1300,17 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
 
   const handleLogin = async () => {
     setLoginError("");
-    if (!loginName) { setLoginError("Choose your name."); return; }
+    if (!loginName) { setLoginError("Choose your name"); return; }
     const record = users[loginName];
-    if (!record) { setLoginError("That user no longer exists."); return; }
-    if (record.password !== loginPassword) { setLoginError("Wrong password."); return; }
-    if (record.locked) { setLoginError("Your access is locked. Contact your manager."); return; }
+    if (!record) { setLoginError("That user no longer exists"); return; }
+    if (record.password !== loginPassword) { setLoginError("Wrong password"); return; }
+    if (record.locked) { setLoginError("Your access is locked. Contact your manager"); return; }
     try {
       await window.storage.set(wsKey("my-user"), loginName, false);
       setMyUser(loginName);
       setLoginPassword("");
     } catch (e) {
-      setLoginError("Could not log in, try again.");
+      setLoginError("Could not log in, try again");
     }
   };
 
@@ -1329,16 +1329,16 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
   const handleDashboardLogin = async () => {
     setDashLoginError("");
     const typed = dashLoginName.trim();
-    if (!typed) { setDashLoginError("Enter your name."); return; }
+    if (!typed) { setDashLoginError("Enter your name"); return; }
     const matchKey = Object.keys(dashboardUsers).find((k) => k.toLowerCase() === typed.toLowerCase());
     const record = matchKey ? dashboardUsers[matchKey] : null;
-    if (!record || record.password !== dashLoginPassword) { setDashLoginError("Wrong name or password."); return; }
+    if (!record || record.password !== dashLoginPassword) { setDashLoginError("Wrong name or password"); return; }
     try {
       await window.storage.set(wsKey("my-dash-user"), matchKey, false);
       setMyDashUser(matchKey);
       setDashLoginPassword("");
     } catch (e) {
-      setDashLoginError("Could not log in, try again.");
+      setDashLoginError("Could not log in, try again");
     }
   };
 
@@ -1374,17 +1374,17 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
 
   const handleChangeOwnerPassword = async () => {
     setChangeOwnerMsg("");
-    if (!changeOwnerNew.trim() || changeOwnerNew.trim().length < 4) { setChangeOwnerMsg("New password must be at least 4 characters."); return; }
+    if (!changeOwnerNew.trim() || changeOwnerNew.trim().length < 4) { setChangeOwnerMsg("New password must be at least 4 characters"); return; }
     const updated = { ...dashboardUsers, [myDashUser]: { ...dashboardUsers[myDashUser], password: changeOwnerNew.trim() } };
     const ok = await saveDashboardUsers(updated, `Changed Dashboard password for "${myDashUser}"`);
-    if (ok) { setChangeOwnerMsg("Password updated."); setChangeOwnerNew(""); } else { setChangeOwnerMsg("Could not save, try again."); }
+    if (ok) { setChangeOwnerMsg("Password updated"); setChangeOwnerNew(""); } else { setChangeOwnerMsg("Could not save, try again"); }
   };
 
   // ---- Dashboard Team management (owner only, from Users tab → Dashboard) ----
   const handleAddDashUser = async () => {
     const trimmed = newDashUserId.trim();
-    if (!trimmed || !newDashUserPassword.trim()) { setDashError("Enter a name and password."); return; }
-    if (dashboardUsers[trimmed]) { setDashError("Someone with that name already exists."); return; }
+    if (!trimmed || !newDashUserPassword.trim()) { setDashError("Enter a name and password"); return; }
+    if (dashboardUsers[trimmed]) { setDashError("Someone with that name already exists"); return; }
     const updated = { ...dashboardUsers, [trimmed]: { password: newDashUserPassword.trim(), role: "member", permissions: newDashUserPerms, locked: false } };
     const ok = await saveDashboardUsers(updated, `Added Dashboard user "${trimmed}"`);
     if (ok) { setNewDashUserId(""); setNewDashUserPassword(""); setNewDashUserPerms({}); }
@@ -1438,7 +1438,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
       if (!res) throw new Error("no result");
       setEvents(updated);
     } catch (e) {
-      setError("Could not record that, try again.");
+      setError("Could not record that, try again");
     }
     setSaving(false);
   };
@@ -1489,7 +1489,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
       const note = target === "finish" ? " (not counted as overtime)" : "";
       addAudit(`Owner forced "${personName}" into "${targetLabel}"${note}`);
     } catch (e) {
-      setDashError("Could not apply that, try again.");
+      setDashError("Could not apply that, try again");
     }
   };
 
@@ -1508,7 +1508,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
       addAudit(`Purged all attendance records for "${personName}"`);
       setConfirmPurgeFor("");
     } catch (e) {
-      setDashError("Could not delete, try again.");
+      setDashError("Could not delete, try again");
     }
   };
 
@@ -1520,7 +1520,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
       addAudit("Cleared all attendance records");
       setConfirmWipe(false);
     } catch (e) {
-      setDashError("Could not clear data, try again.");
+      setDashError("Could not clear data, try again");
     }
   };
 
@@ -1537,7 +1537,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
       if (!res) throw new Error("no result");
       setEvents(updated);
     } catch (e) {
-      setError("Could not record that, try again.");
+      setError("Could not record that, try again");
     }
     setSaving(false);
   };
@@ -1553,7 +1553,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
       setEvents(updated);
       addAudit(`${decision === "ot_approve" ? "Approved" : "Denied"} overtime for "${personName}"`);
     } catch (e) {
-      setDashError("Could not save that, try again.");
+      setDashError("Could not save that, try again");
     }
   };
 
@@ -1733,12 +1733,12 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
       const res = await window.storage.set(wsKey("attendance-schedule-published"), JSON.stringify(schedule), true);
       if (res) {
         setPublishedSchedule(schedule);
-        setPublishMsg("Published — your team can now see this schedule.");
+        setPublishMsg("Published — your team can now see this schedule");
         setTimeout(() => setPublishMsg(""), 3000);
         return true;
       }
     } catch (e) {}
-    setPublishMsg("Could not publish, try again.");
+    setPublishMsg("Could not publish, try again");
     return false;
   }, [wsKey, schedule]);
 
@@ -1747,12 +1747,12 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
       const res = await window.storage.set(wsKey("attendance-schedule-published"), JSON.stringify({}), true);
       if (res) {
         setPublishedSchedule({});
-        setPublishMsg("Unpublished — your team won't see a schedule until you publish again.");
+        setPublishMsg("Unpublished — your team won't see a schedule until you publish again");
         setTimeout(() => setPublishMsg(""), 3000);
         return true;
       }
     } catch (e) {}
-    setPublishMsg("Could not unpublish, try again.");
+    setPublishMsg("Could not unpublish, try again");
     return false;
   }, [wsKey]);
 
@@ -1873,7 +1873,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
     try {
       const text = await file.text();
       const rows = parseSimpleCSV(text);
-      if (rows.length < 2) { setImportMsg("That file looks empty."); return; }
+      if (rows.length < 2) { setImportMsg("That file looks empty"); return; }
       const header = rows[0];
       const dateCols = header.slice(2).map((h) => parseUSDateToKey(h));
       const updatedSchedule = { ...schedule };
@@ -1917,13 +1917,13 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
       }
       setImportMsg(
         !ok
-          ? "Could not save the import, try again."
+          ? "Could not save the import, try again"
           : !usersOk
           ? `Imported ${matched} agent(s), but annual leave balances could not be updated — check them manually.`
           : `Imported ${matched} agent(s).${unmatched.length ? ` Skipped (no matching user): ${[...new Set(unmatched)].join(", ")}.` : ""}`
       );
     } catch (e) {
-      setImportMsg("Could not read that file.");
+      setImportMsg("Could not read that file");
     }
   };
 
@@ -2380,7 +2380,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
             </div>
             <p className="text-sm font-medium text-neutral-100 mb-1">Leave this workspace?</p>
             <p className="text-xs text-neutral-500 mb-4">
-              {tab === "track" ? "You'll need to enter the workspace name again to come back to the Agent screen." : "You'll need to enter the workspace name again to come back to the Dashboard."}
+              {tab === "track" ? "You'll need to enter the workspace name again to come back to the Agent screen" : "You'll need to enter the workspace name again to come back to the Dashboard"}
             </p>
             <div className="flex gap-2">
               <button
@@ -2967,7 +2967,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
                       const dates = needsSecondDate ? [sdate, swapSecondDate] : [sdate];
                       const req = { id: Date.now(), fromName: myUser, toName: swapTargetName, dates, status: "awaiting_colleague", requestedAt: Date.now() };
                       const ok = await saveSwapRequests([...swapRequests, req]);
-                      if (!ok) { setError("Could not send the request, try again."); return; }
+                      if (!ok) { setError("Could not send the request, try again"); return; }
                       setSwapForCell(null);
                       setSwapTargetName("");
                       setSwapSecondDate("");
@@ -3110,7 +3110,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
                                   onClick={async () => {
                                     const ok = await saveSwapRequests(swapRequests.map((x) => (x.id === r.id ? { ...x, status: "pending" } : x)));
                                     if (ok) showToast("Accepted — waiting for owner approval");
-                                    else setError("Could not accept, try again.");
+                                    else setError("Could not accept, try again");
                                   }}
                                   className="flex items-center gap-1 text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-md px-2.5 py-1.5 hover:bg-emerald-500/20"
                                 >
@@ -3119,7 +3119,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
                                 <button
                                   onClick={async () => {
                                     const ok = await saveSwapRequests(swapRequests.map((x) => (x.id === r.id ? { ...x, status: "rejected_by_colleague" } : x)));
-                                    if (!ok) setError("Could not decline, try again.");
+                                    if (!ok) setError("Could not decline, try again");
                                   }}
                                   className="flex items-center gap-1 text-xs font-medium bg-rose-500/10 text-rose-400 border border-rose-500/30 rounded-md px-2.5 py-1.5 hover:bg-rose-500/20"
                                 >
@@ -3591,7 +3591,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
                                       const updatedSchedule = { ...schedule };
                                       applySwapDates(updatedSchedule);
                                       const ok = await saveSchedule(updatedSchedule);
-                                      if (!ok) { setDashError("Could not update the schedule, try again."); return; }
+                                      if (!ok) { setDashError("Could not update the schedule, try again"); return; }
                                       await saveSwapRequests(swapRequests.map((x) => (x.id === r.id ? { ...x, status: "approved" } : x)));
                                       addAudit(`Approved shift swap between "${r.fromName}" and "${r.toName}" for ${r.dates.map((d) => fmtDateLabel(d)).join(" and ")}`);
                                     }}
@@ -3602,7 +3602,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
                                   <button
                                     onClick={async () => {
                                       const ok = await saveSwapRequests(swapRequests.map((x) => (x.id === r.id ? { ...x, status: "rejected" } : x)));
-                                      if (!ok) setDashError("Could not reject, try again.");
+                                      if (!ok) setDashError("Could not reject, try again");
                                     }}
                                     className="flex items-center gap-1 text-xs font-medium bg-rose-500/10 text-rose-400 border border-rose-500/30 rounded-md px-2.5 py-1.5 hover:bg-rose-500/20"
                                   >
@@ -3669,10 +3669,10 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
                                 if (e1) updatedSchedule[key2] = e1; else delete updatedSchedule[key2];
                               });
                               const ok = await saveSchedule(updatedSchedule);
-                              if (!ok) { setDashError("Could not update the schedule, try again."); return; }
+                              if (!ok) { setDashError("Could not update the schedule, try again"); return; }
                               const newStatus = r.status === "approved" ? "rejected" : "approved";
                               const statusOk = await saveSwapRequests(swapRequests.map((x) => (x.id === r.id ? { ...x, status: newStatus } : x)));
-                              if (!statusOk) { setDashError("Schedule updated, but the request status couldn't be saved — try again."); return; }
+                              if (!statusOk) { setDashError("Schedule updated, but the request status couldn't be saved — try again"); return; }
                               addAudit(`${newStatus === "approved" ? "Approved" : "Reversed"} shift swap between "${r.fromName}" and "${r.toName}" for ${r.dates.map((d) => fmtDateLabel(d)).join(" and ")}`);
                             };
                             const badge =
@@ -3733,8 +3733,8 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
                   onClick={async () => {
                     setDashError("");
                     const trimmed = newUserName.trim();
-                    if (!trimmed || !newUserPassword.trim()) { setDashError("Enter a name and password."); return; }
-                    if (users[trimmed]) { setDashError("That name already exists."); return; }
+                    if (!trimmed || !newUserPassword.trim()) { setDashError("Enter a name and password"); return; }
+                    if (users[trimmed]) { setDashError("That name already exists"); return; }
                     const updated = { ...users, [trimmed]: { id: newUserId.trim(), password: newUserPassword.trim(), locked: false, note: "", team: "", annualLeaveBalance: DEFAULT_ANNUAL_LEAVE_BALANCE } };
                     const ok = await saveUsers(updated, `Added user "${trimmed}"`);
                     if (ok) { setNewUserName(""); setNewUserId(""); setNewUserPassword(""); }
@@ -4085,10 +4085,10 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
                   const isTaskNow = info.status === "working" && info.activity === "task";
                   const canFinish = info.status === "working" || info.status === "on_break";
                   const FORCE_BUTTONS = [
-                    { target: "available", label: "Available", color: "emerald", disabled: isAvailableNow },
-                    { target: "meeting", label: "Meeting", color: "sky", disabled: isMeetingNow },
-                    { target: "task", label: "Task", color: "violet", disabled: isTaskNow },
-                    { target: "finish", label: "Finish", color: "rose", disabled: !canFinish },
+                    { target: "available", label: "Force Available", color: "emerald", disabled: isAvailableNow },
+                    { target: "meeting", label: "Force Meeting", color: "sky", disabled: isMeetingNow },
+                    { target: "task", label: "Force Task", color: "violet", disabled: isTaskNow },
+                    { target: "finish", label: "Force Finish", color: "rose", disabled: !canFinish },
                   ];
                   return (
                     <div key={uname} className="bg-neutral-900 border border-neutral-800 rounded-xl px-4 py-4">
@@ -4890,7 +4890,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
                             dates.forEach((d) => { delete updated[`${uname}|${d}`]; });
                           });
                           const ok = await saveSchedule(updated);
-                          if (!ok) { setDashError("Could not delete, try again."); return; }
+                          if (!ok) { setDashError("Could not delete, try again"); return; }
                           setConfirmDeleteSchedule(false);
                         }}
                         className="text-xs font-medium bg-rose-500 text-white rounded-md px-3 py-1.5"
@@ -5061,15 +5061,15 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
               <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
                 <p className="text-xs text-neutral-500 mb-2">Break time limit (minutes)</p>
                 <p className="text-[11px] text-neutral-600 mb-3">If a break runs longer than this, break gets locked for the rest of that shift and shows in red.</p>
-                {breakLimitMsg && <p className={`text-[11px] mb-1.5 ${breakLimitMsg === "Saved." ? "text-emerald-400" : "text-rose-400"}`}>{breakLimitMsg}</p>}
+                {breakLimitMsg && <p className={`text-[11px] mb-1.5 ${breakLimitMsg === "Saved" ? "text-emerald-400" : "text-rose-400"}`}>{breakLimitMsg}</p>}
                 <div className="flex gap-2">
                   <input type="number" min="1" value={breakLimitInput} onChange={(e) => { setBreakLimitInput(e.target.value); setBreakLimitMsg(""); }} className="flex-1 min-w-0 bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-500" />
                   <button
                     onClick={async () => {
                       const val = parseInt(breakLimitInput, 10);
-                      if (!val || val < 1) { setBreakLimitMsg("Enter a valid number of minutes."); return; }
+                      if (!val || val < 1) { setBreakLimitMsg("Enter a valid number of minutes"); return; }
                       const ok = await saveSettings({ ...settings, breakLimitMinutes: val }, `Set break limit to ${val} min`);
-                      setBreakLimitMsg(ok ? "Saved." : "Could not save, try again.");
+                      setBreakLimitMsg(ok ? "Saved" : "Could not save, try again");
                     }}
                     className="bg-neutral-100 text-neutral-900 text-sm font-medium px-4 py-2 rounded-lg shrink-0"
                   >
@@ -5081,15 +5081,15 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
               <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
                 <p className="text-xs text-neutral-500 mb-2">Standard shift length (hours)</p>
                 <p className="text-[11px] text-neutral-600 mb-3">Finish stays locked until this many hours pass since Available (break included). Once reached, a sound alert repeats every 5 minutes until there's a response. Extra work beyond this goes through the separate Overtime tab.</p>
-                {standardHoursMsg && <p className={`text-[11px] mb-1.5 ${standardHoursMsg === "Saved." ? "text-emerald-400" : "text-rose-400"}`}>{standardHoursMsg}</p>}
+                {standardHoursMsg && <p className={`text-[11px] mb-1.5 ${standardHoursMsg === "Saved" ? "text-emerald-400" : "text-rose-400"}`}>{standardHoursMsg}</p>}
                 <div className="flex gap-2">
                   <input type="number" min="1" step="0.5" value={standardHoursInput} onChange={(e) => { setStandardHoursInput(e.target.value); setStandardHoursMsg(""); }} className="flex-1 min-w-0 bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-500" />
                   <button
                     onClick={async () => {
                       const val = parseFloat(standardHoursInput);
-                      if (!val || val < 0) { setStandardHoursMsg("Enter a valid number of hours."); return; }
+                      if (!val || val < 0) { setStandardHoursMsg("Enter a valid number of hours"); return; }
                       const ok = await saveSettings({ ...settings, standardHours: val }, `Set standard shift length to ${val}h`);
-                      setStandardHoursMsg(ok ? "Saved." : "Could not save, try again.");
+                      setStandardHoursMsg(ok ? "Saved" : "Could not save, try again");
                     }}
                     className="bg-neutral-100 text-neutral-900 text-sm font-medium px-4 py-2 rounded-lg shrink-0"
                   >
@@ -5101,15 +5101,15 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
               <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
                 <p className="text-xs text-neutral-500 mb-2">Minimum rest between shifts (hours)</p>
                 <p className="text-[11px] text-neutral-600 mb-3">Once someone finishes a shift, the Available button stays locked until this many hours have passed since that Finish — they'll see exactly when it unlocks. Set to 0 to turn this off (anyone can start a new shift right away).</p>
-                {minRestHoursMsg && <p className={`text-[11px] mb-1.5 ${minRestHoursMsg === "Saved." ? "text-emerald-400" : "text-rose-400"}`}>{minRestHoursMsg}</p>}
+                {minRestHoursMsg && <p className={`text-[11px] mb-1.5 ${minRestHoursMsg === "Saved" ? "text-emerald-400" : "text-rose-400"}`}>{minRestHoursMsg}</p>}
                 <div className="flex gap-2">
                   <input type="number" min="0" step="0.5" value={minRestHoursInput} onChange={(e) => { setMinRestHoursInput(e.target.value); setMinRestHoursMsg(""); }} className="flex-1 min-w-0 bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-500" />
                   <button
                     onClick={async () => {
                       const val = parseFloat(minRestHoursInput);
-                      if (val === "" || isNaN(val) || val < 0) { setMinRestHoursMsg("Enter a valid number of hours (0 to disable)."); return; }
+                      if (val === "" || isNaN(val) || val < 0) { setMinRestHoursMsg("Enter a valid number of hours (0 to disable)"); return; }
                       const ok = await saveSettings({ ...settings, minRestHours: val }, val > 0 ? `Set minimum rest between shifts to ${val}h` : "Turned off minimum rest between shifts");
-                      setMinRestHoursMsg(ok ? "Saved." : "Could not save, try again.");
+                      setMinRestHoursMsg(ok ? "Saved" : "Could not save, try again");
                     }}
                     className="bg-neutral-100 text-neutral-900 text-sm font-medium px-4 py-2 rounded-lg shrink-0"
                   >
@@ -5121,15 +5121,15 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
               <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
                 <p className="text-xs text-neutral-500 mb-2">Overview auto-refresh (seconds)</p>
                 <p className="text-[11px] text-neutral-600 mb-3">How often the Overview tab quietly refreshes itself while it's open — on top of the app-wide 20s refresh everywhere else. Set to 0 to turn off this extra refresh (Overview still gets the app-wide 20s one).</p>
-                {overviewRefreshMsg && <p className={`text-[11px] mb-1.5 ${overviewRefreshMsg === "Saved." ? "text-emerald-400" : "text-rose-400"}`}>{overviewRefreshMsg}</p>}
+                {overviewRefreshMsg && <p className={`text-[11px] mb-1.5 ${overviewRefreshMsg === "Saved" ? "text-emerald-400" : "text-rose-400"}`}>{overviewRefreshMsg}</p>}
                 <div className="flex gap-2">
                   <input type="number" min="0" step="1" value={overviewRefreshInput} onChange={(e) => { setOverviewRefreshInput(e.target.value); setOverviewRefreshMsg(""); }} className="flex-1 min-w-0 bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-500" />
                   <button
                     onClick={async () => {
                       const val = parseInt(overviewRefreshInput, 10);
-                      if (isNaN(val) || val < 0) { setOverviewRefreshMsg("Enter a valid number of seconds (0 to disable)."); return; }
+                      if (isNaN(val) || val < 0) { setOverviewRefreshMsg("Enter a valid number of seconds (0 to disable)"); return; }
                       const ok = await saveSettings({ ...settings, overviewRefreshSeconds: val }, val > 0 ? `Set Overview auto-refresh to every ${val}s` : "Turned off the extra Overview auto-refresh");
-                      setOverviewRefreshMsg(ok ? "Saved." : "Could not save, try again.");
+                      setOverviewRefreshMsg(ok ? "Saved" : "Could not save, try again");
                     }}
                     className="bg-neutral-100 text-neutral-900 text-sm font-medium px-4 py-2 rounded-lg shrink-0"
                   >
@@ -5141,15 +5141,15 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
               <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
                 <p className="text-xs text-neutral-500 mb-2">Auto-close grace period (minutes)</p>
                 <p className="text-[11px] text-neutral-600 mb-3">If someone reaches standard hours and doesn't respond to any alert within this window, the shift closes itself automatically and is never counted as overtime. They can press "I'm still here" on the alert to reset this window without it counting as overtime either.</p>
-                {graceMinutesMsg && <p className={`text-[11px] mb-1.5 ${graceMinutesMsg === "Saved." ? "text-emerald-400" : "text-rose-400"}`}>{graceMinutesMsg}</p>}
+                {graceMinutesMsg && <p className={`text-[11px] mb-1.5 ${graceMinutesMsg === "Saved" ? "text-emerald-400" : "text-rose-400"}`}>{graceMinutesMsg}</p>}
                 <div className="flex gap-2">
                   <input type="number" min="5" step="5" value={graceMinutesInput} onChange={(e) => { setGraceMinutesInput(e.target.value); setGraceMinutesMsg(""); }} className="flex-1 min-w-0 bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-500" />
                   <button
                     onClick={async () => {
                       const val = parseInt(graceMinutesInput, 10);
-                      if (!val || val < 5) { setGraceMinutesMsg("Enter a valid number of minutes (5 or more)."); return; }
+                      if (!val || val < 5) { setGraceMinutesMsg("Enter a valid number of minutes (5 or more)"); return; }
                       const ok = await saveSettings({ ...settings, graceMinutes: val }, `Set auto-close grace period to ${val} min`);
-                      setGraceMinutesMsg(ok ? "Saved." : "Could not save, try again.");
+                      setGraceMinutesMsg(ok ? "Saved" : "Could not save, try again");
                     }}
                     className="bg-neutral-100 text-neutral-900 text-sm font-medium px-4 py-2 rounded-lg shrink-0"
                   >
@@ -5161,15 +5161,15 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
               <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
                 <p className="text-xs text-neutral-500 mb-2 flex items-center gap-1.5"><Zap size={12} /> Weekly overtime cap (hours)</p>
                 <p className="text-[11px] text-neutral-600 mb-3">Just a soft guideline — shown to employees as a progress bar, and flagged in red once they go over. Doesn't block anyone from starting overtime; you still approve or deny every session yourself.</p>
-                {otCapHoursMsg && <p className={`text-[11px] mb-1.5 ${otCapHoursMsg === "Saved." ? "text-emerald-400" : "text-rose-400"}`}>{otCapHoursMsg}</p>}
+                {otCapHoursMsg && <p className={`text-[11px] mb-1.5 ${otCapHoursMsg === "Saved" ? "text-emerald-400" : "text-rose-400"}`}>{otCapHoursMsg}</p>}
                 <div className="flex gap-2">
                   <input type="number" min="0" step="0.5" value={otCapHoursInput} onChange={(e) => { setOtCapHoursInput(e.target.value); setOtCapHoursMsg(""); }} className="flex-1 min-w-0 bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-500" />
                   <button
                     onClick={async () => {
                       const val = parseFloat(otCapHoursInput);
-                      if (!val || val < 0) { setOtCapHoursMsg("Enter a valid number of hours."); return; }
+                      if (!val || val < 0) { setOtCapHoursMsg("Enter a valid number of hours"); return; }
                       const ok = await saveSettings({ ...settings, otCapHours: val }, `Set weekly overtime cap to ${val}h`);
-                      setOtCapHoursMsg(ok ? "Saved." : "Could not save, try again.");
+                      setOtCapHoursMsg(ok ? "Saved" : "Could not save, try again");
                     }}
                     className="bg-neutral-100 text-neutral-900 text-sm font-medium px-4 py-2 rounded-lg shrink-0"
                   >
@@ -5181,15 +5181,15 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
               <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
                 <p className="text-xs text-neutral-500 mb-2">Max overtime session length (hours)</p>
                 <p className="text-[11px] text-neutral-600 mb-3">Same safety net as the regular shift: once a single overtime session runs past this, it starts pinging every 5 min and auto-closes itself after the grace period above if nobody responds.</p>
-                {otMaxHoursMsg && <p className={`text-[11px] mb-1.5 ${otMaxHoursMsg === "Saved." ? "text-emerald-400" : "text-rose-400"}`}>{otMaxHoursMsg}</p>}
+                {otMaxHoursMsg && <p className={`text-[11px] mb-1.5 ${otMaxHoursMsg === "Saved" ? "text-emerald-400" : "text-rose-400"}`}>{otMaxHoursMsg}</p>}
                 <div className="flex gap-2">
                   <input type="number" min="0.5" step="0.5" value={otMaxHoursInput} onChange={(e) => { setOtMaxHoursInput(e.target.value); setOtMaxHoursMsg(""); }} className="flex-1 min-w-0 bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-500" />
                   <button
                     onClick={async () => {
                       const val = parseFloat(otMaxHoursInput);
-                      if (!val || val < 0.5) { setOtMaxHoursMsg("Enter a valid number of hours (0.5 or more)."); return; }
+                      if (!val || val < 0.5) { setOtMaxHoursMsg("Enter a valid number of hours (0.5 or more)"); return; }
                       const ok = await saveSettings({ ...settings, otMaxHours: val }, `Set max overtime session to ${val}h`);
-                      setOtMaxHoursMsg(ok ? "Saved." : "Could not save, try again.");
+                      setOtMaxHoursMsg(ok ? "Saved" : "Could not save, try again");
                     }}
                     className="bg-neutral-100 text-neutral-900 text-sm font-medium px-4 py-2 rounded-lg shrink-0"
                   >
@@ -5202,7 +5202,7 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
                 <p className="text-xs text-neutral-500">My Dashboard account</p>
                 <div>
                   <p className="text-[11px] text-neutral-600 mb-2">Signed in as {myDashUser} — set a new password</p>
-                  {changeOwnerMsg && <p className={`text-[11px] mb-1.5 ${changeOwnerMsg === "Password updated." ? "text-emerald-400" : "text-rose-400"}`}>{changeOwnerMsg}</p>}
+                  {changeOwnerMsg && <p className={`text-[11px] mb-1.5 ${changeOwnerMsg === "Password updated" ? "text-emerald-400" : "text-rose-400"}`}>{changeOwnerMsg}</p>}
                   <div className="flex gap-2">
                     <PasswordInput value={changeOwnerNew} onChange={(e) => setChangeOwnerNew(e.target.value)} placeholder="New password" className="bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-1.5 text-xs text-neutral-100 placeholder-neutral-600 outline-none focus:border-neutral-500" />
                     <button onClick={handleChangeOwnerPassword} className="bg-neutral-100 text-neutral-900 text-xs font-medium px-3 py-1.5 rounded-lg shrink-0">Save</button>
@@ -5426,19 +5426,19 @@ function AdminApprovalScreen({ onBack }) {
   const handleCreateWorkspace = async () => {
     setNewWsMsg("");
     const norm = normalizeWorkspaceName(newWsName);
-    if (norm.length < 3) { setNewWsMsg("Dashboard name must be at least 3 characters."); return; }
-    if (!newWsPassword || newWsPassword.length < 4) { setNewWsMsg("Workspace password must be at least 4 characters."); return; }
+    if (norm.length < 3) { setNewWsMsg("Dashboard name must be at least 3 characters"); return; }
+    if (!newWsPassword || newWsPassword.length < 4) { setNewWsMsg("Workspace password must be at least 4 characters"); return; }
     if ((newWsDashName.trim() && !newWsDashPassword) || (!newWsDashName.trim() && newWsDashPassword)) {
-      setNewWsMsg("Fill in both the Dashboard owner name and password, or leave both empty.");
+      setNewWsMsg("Fill in both the Dashboard owner name and password, or leave both empty");
       return;
     }
-    if (newWsDashName.trim() && newWsDashPassword.length < 4) { setNewWsMsg("Dashboard owner password must be at least 4 characters."); return; }
+    if (newWsDashName.trim() && newWsDashPassword.length < 4) { setNewWsMsg("Dashboard owner password must be at least 4 characters"); return; }
     setNewWsSubmitting(true);
     const reg = await loadRegistry();
-    if (reg[norm]) { setNewWsMsg("That name is already taken. Choose another."); setNewWsSubmitting(false); return; }
+    if (reg[norm]) { setNewWsMsg("That name is already taken. Choose another"); setNewWsSubmitting(false); return; }
     const updated = { ...reg, [norm]: { displayName: newWsName.trim(), password: newWsPassword, status: "approved", createdAt: Date.now() } };
     const res = await saveRegistry(updated);
-    if (!res) { setNewWsMsg("Could not create, try again."); setNewWsSubmitting(false); return; }
+    if (!res) { setNewWsMsg("Could not create, try again"); setNewWsSubmitting(false); return; }
     setRegistry(updated);
     if (newWsDashName.trim() && newWsDashPassword) {
       const allPerms = Object.fromEntries(DASH_TABS.map((t) => [t.key, true]));
@@ -5494,7 +5494,7 @@ function AdminApprovalScreen({ onBack }) {
 
   const submitReset = async (key) => {
     if (!resetValue || resetValue.length < 4) {
-      setResetMsg("Password must be at least 4 characters.");
+      setResetMsg("Password must be at least 4 characters");
       return;
     }
     setBusyKey(key);
@@ -5505,7 +5505,7 @@ function AdminApprovalScreen({ onBack }) {
     setBusyKey("");
     setResetKey("");
     setResetValue("");
-    setResetMsg("Password updated.");
+    setResetMsg("Password updated");
     setTimeout(() => setResetMsg(""), 2500);
   };
 
@@ -5515,7 +5515,7 @@ function AdminApprovalScreen({ onBack }) {
   const submitDashCred = async (key) => {
     const trimmed = dashCredName.trim();
     if (!trimmed || !dashCredPassword || dashCredPassword.length < 4) {
-      setDashCredMsg("Enter a name and a password (min 4 characters).");
+      setDashCredMsg("Enter a name and a password (min 4 characters)");
       return;
     }
     setBusyKey(key);
@@ -5526,10 +5526,10 @@ function AdminApprovalScreen({ onBack }) {
       const updated = { ...existing, [trimmed]: { password: dashCredPassword, role: "owner", permissions: allPerms, locked: false } };
       const res = await window.storage.set(`ws:${key}:attendance-dashboard-users`, JSON.stringify(updated), true);
       if (!res) throw new Error("no result");
-      setDashCredMsg("Saved.");
+      setDashCredMsg("Saved");
       setTimeout(() => { setDashCredKey(""); setDashCredName(""); setDashCredPassword(""); setDashCredMsg(""); }, 1200);
     } catch (e) {
-      setDashCredMsg("Could not save, try again.");
+      setDashCredMsg("Could not save, try again");
     }
     setBusyKey("");
   };
@@ -5712,7 +5712,7 @@ function AdminApprovalScreen({ onBack }) {
                       Save
                     </button>
                   </div>
-                  {dashCredMsg && <p className={`text-[10px] mt-1.5 ${dashCredMsg === "Saved." ? "text-emerald-400" : "text-rose-400"}`}>{dashCredMsg}</p>}
+                  {dashCredMsg && <p className={`text-[10px] mt-1.5 ${dashCredMsg === "Saved" ? "text-emerald-400" : "text-rose-400"}`}>{dashCredMsg}</p>}
                 </div>
               )}
               {confirmDeleteWs === key && (
@@ -5885,7 +5885,7 @@ export default function App() {
             setPhase("ready");
           } else if (entry?.status === "approved" && entry.locked) {
             safeRemoveLocal("workspace-name");
-            setError("This Dashboard is locked. Contact your administrator.");
+            setError("This Dashboard is locked. Contact your administrator");
             setPhase("gate");
           } else if (entry?.status === "pending") {
             setWorkspaceKey(saved);
@@ -5914,23 +5914,23 @@ export default function App() {
   const handleEnter = async () => {
     setError("");
     const norm = normalizeWorkspaceName(name);
-    if (!norm) { setError("Type your Dashboard name."); return; }
-    if (!password) { setError("Type the password."); return; }
+    if (!norm) { setError("Type your Dashboard name"); return; }
+    if (!password) { setError("Type the password"); return; }
     setSubmitting(true);
     const reg = await loadRegistry();
     const entry = reg[norm];
     if (!entry) {
-      setError("That Dashboard name doesn't exist.");
+      setError("That Dashboard name doesn't exist");
       setSubmitting(false);
       return;
     }
     if (entry.locked) {
-      setError("This Dashboard is locked. Contact your administrator.");
+      setError("This Dashboard is locked. Contact your administrator");
       setSubmitting(false);
       return;
     }
     if (entry.password !== password) {
-      setError("Wrong password.");
+      setError("Wrong password");
       setSubmitting(false);
       return;
     }
@@ -5950,7 +5950,7 @@ export default function App() {
     } else if (!entry) {
       safeRemoveLocal("workspace-name");
       setPhase("gate");
-      setError("That request was declined. Try a different name.");
+      setError("That request was declined. Try a different name");
     }
     setSubmitting(false);
   };
