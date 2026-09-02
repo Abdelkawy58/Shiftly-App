@@ -21,6 +21,9 @@ const DEFAULT_ANNUAL_LEAVE_BALANCE = 21;
 // Secret admin key — only for you (the builder). Visit the app with ?admin=THIS_VALUE
 // in the URL to reach the hidden workspace-approval screen. Never share this string.
 const ADMIN_SECRET = "8122000";
+// Second, separate layer: even with the correct URL above, this password is required before the
+// admin panel's actual content shows. Change this to something only you know before you deploy.
+const ADMIN_PANEL_PASSWORD = "M8122000";
 
 function todayKey(d = new Date()) {
   const y = d.getFullYear();
@@ -3759,7 +3762,6 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
                 {Object.entries(users).filter(([uname]) => matchesSearch(uname)).sort(([a], [b]) => compareByUserId(a, b)).map(([uname, rec]) => {
                   const info = userInfoByUser[uname] || { status: "not_started", activity: "available", todayWorkedMs: 0, lastEventTs: null };
                   const badge = personBadge(info.status, info.activity);
-                  const canForceFinish = info.status === "working" || info.status === "on_break";
                   const ac = avatarColor(uname);
                   return (
                     <div key={uname} className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
@@ -3815,11 +3817,6 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
                           <span>Today: <span className="text-neutral-300 font-mono">{info.todayWorkedMs ? fmtDuration(info.todayWorkedMs) : "—"}</span></span>
                           <span>Last active: <span className="text-neutral-300 font-mono">{info.lastEventTs ? (todayKey(new Date(info.lastEventTs)) === todayKey() ? fmtTime(info.lastEventTs) : fmtDateShort(todayKey(new Date(info.lastEventTs)))) : "never"}</span></span>
                         </div>
-                        {canForceFinish && (
-                          <button onClick={() => forceUserState(uname, "finish")} className="text-[11px] font-medium text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-0.5 rounded-full whitespace-nowrap">
-                            Force Finish now
-                          </button>
-                        )}
                       </div>
 
                       {rec.note && editingNoteFor !== uname && <p className="mt-2 text-[11px] text-neutral-500 italic">"{rec.note}"</p>}
@@ -4088,34 +4085,33 @@ function Shiftly({ workspaceName, workspaceDisplayName, onSwitchWorkspace, onBac
                   const isTaskNow = info.status === "working" && info.activity === "task";
                   const canFinish = info.status === "working" || info.status === "on_break";
                   const FORCE_BUTTONS = [
-                    { target: "available", label: "Available", icon: Play, color: "emerald", disabled: isAvailableNow },
-                    { target: "meeting", label: "Meeting", icon: UsersIcon, color: "sky", disabled: isMeetingNow },
-                    { target: "task", label: "Task", icon: StickyNote, color: "violet", disabled: isTaskNow },
-                    { target: "finish", label: "Finish", icon: Square, color: "rose", disabled: !canFinish },
+                    { target: "available", label: "Available", color: "emerald", disabled: isAvailableNow },
+                    { target: "meeting", label: "Meeting", color: "sky", disabled: isMeetingNow },
+                    { target: "task", label: "Task", color: "violet", disabled: isTaskNow },
+                    { target: "finish", label: "Finish", color: "rose", disabled: !canFinish },
                   ];
                   return (
-                    <div key={uname} className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
-                      <div className="flex items-center gap-2 mb-2.5">
+                    <div key={uname} className="bg-neutral-900 border border-neutral-800 rounded-xl px-4 py-4">
+                      <div className="flex items-center gap-2 mb-4">
                         <div className={`w-7 h-7 shrink-0 rounded-full flex items-center justify-center text-[11px] font-semibold ${ac.bg} ${ac.text}`}>
                           {uname.trim()[0].toUpperCase()}
                         </div>
                         <span className="text-sm font-medium text-neutral-100 truncate">{uname}</span>
                         <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${badge.cls}`}>{badge.label}</span>
                       </div>
-                      <div className="grid grid-cols-4 gap-1.5">
+                      <div className="flex items-center justify-between">
                         {FORCE_BUTTONS.map((b) => {
-                          const Icon = b.icon;
                           const c = COLOR[b.color];
                           return (
                             <button
                               key={b.target}
                               disabled={b.disabled}
                               onClick={() => forceUserState(uname, b.target)}
-                              title={`Force ${b.label}`}
-                              className={`flex flex-col items-center justify-center gap-1 rounded-lg border py-2.5 transition-all active:scale-95 ${b.disabled ? "bg-neutral-900/40 border-neutral-900 opacity-30 cursor-not-allowed" : "bg-neutral-950 border-neutral-800 hover:border-neutral-700"}`}
+                              className={`flex-1 text-center py-3 text-sm font-medium rounded-lg transition-colors ${
+                                b.disabled ? "text-neutral-700 cursor-not-allowed" : `${c.text} hover:bg-neutral-800/60`
+                              }`}
                             >
-                              <Icon size={14} className={b.disabled ? "text-neutral-600" : c.text} />
-                              <span className="text-[10px] font-medium text-neutral-300">{b.label}</span>
+                              {b.label}
                             </button>
                           );
                         })}
@@ -5402,6 +5398,19 @@ function AdminApprovalScreen({ onBack }) {
   const [dashCredMsg, setDashCredMsg] = useState("");
   useAutoClearMsg(dashCredMsg, setDashCredMsg);
   const [confirmDeleteWs, setConfirmDeleteWs] = useState("");
+  const [panelUnlocked, setPanelUnlocked] = useState(() => {
+    try { return sessionStorage.getItem("admin-panel-unlocked") === "1"; } catch (e) { return false; }
+  });
+  const [panelPwInput, setPanelPwInput] = useState("");
+  const [panelPwError, setPanelPwError] = useState(false);
+  const unlockPanel = () => {
+    if (panelPwInput === ADMIN_PANEL_PASSWORD) {
+      try { sessionStorage.setItem("admin-panel-unlocked", "1"); } catch (e) {}
+      setPanelUnlocked(true);
+    } else {
+      setPanelPwError(true);
+    }
+  };
   const [newWsName, setNewWsName] = useState("");
   const [newWsPassword, setNewWsPassword] = useState("");
   const [newWsDashName, setNewWsDashName] = useState("");
@@ -5524,6 +5533,30 @@ function AdminApprovalScreen({ onBack }) {
     }
     setBusyKey("");
   };
+
+  if (!panelUnlocked) {
+    return (
+      <div className="w-full min-h-screen bg-neutral-950 flex items-center justify-center p-5" style={{ fontFamily: "system-ui, sans-serif" }}>
+        <div className="w-full max-w-xs text-center">
+          <div className="w-12 h-12 rounded-xl bg-violet-500/10 border border-violet-500/30 flex items-center justify-center mx-auto mb-4">
+            <Lock size={20} className="text-violet-400" />
+          </div>
+          <p className="text-sm text-neutral-400 mb-3">Admin panel password</p>
+          <PasswordInput
+            value={panelPwInput}
+            onChange={(e) => { setPanelPwInput(e.target.value); setPanelPwError(false); }}
+            onKeyDown={(e) => e.key === "Enter" && unlockPanel()}
+            placeholder="Password"
+            className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2.5 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-violet-500/50 text-center mb-2"
+          />
+          <button onClick={unlockPanel} className="w-full bg-neutral-100 text-neutral-900 text-sm font-medium px-4 py-2.5 rounded-lg">
+            Unlock
+          </button>
+          {panelPwError && <p className="mt-2 text-xs text-rose-400">Wrong password.</p>}
+        </div>
+      </div>
+    );
+  }
 
   if (!registry) {
     return (
